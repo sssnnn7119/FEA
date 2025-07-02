@@ -553,7 +553,7 @@ class FEA_Main():
                 if low_alpha < 0:
                     low_alpha = 0
 
-            if low_alpha > 20:
+            if low_alpha > 10:
                 return False
 
             # update the GC

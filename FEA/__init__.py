@@ -32,8 +32,12 @@ def from_inp(inp: FEA_INP) -> FEA_Main:
                 materials_params=inp.part[part_name].elems_material[elems[key][:, 0]][index_now][:, 3:]
             )
 
+            element_name = key
+            # if key == 'C3D15':
+            #     element_name = 'C3D15Transition12'
+
             elems_now = elements.initialize_element(
-                        element_type=key,
+                        element_type=element_name,
                         elems_index=torch.from_numpy(elems[key][:, 0]),
                         elems=torch.from_numpy(elems[key][:, 1:]),
                         nodes=inp.part[part_name].nodes[:, 1:],

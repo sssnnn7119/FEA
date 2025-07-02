@@ -68,7 +68,7 @@ def fea_inp(inp_name: str):
     return fe.GC[-6:].tolist()
 
 
-element_list = ['C3D4', 'C3D6', 'C3D8', 'C3D10', 'C3D15', 'C3D20']
+element_list = ['C3D15', 'C3D6', 'C3D8', 'C3D10', 'C3D15', 'C3D20']
 
 results = {}
 for element in element_list:

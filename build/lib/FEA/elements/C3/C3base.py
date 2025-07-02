@@ -414,10 +414,29 @@ class Element_3D(BaseElement):
         get the 2-nd order point index of the element that lies in the middle of the element
         
         Returns:
-            torch.Tensor: the 2-nd order point index of the element
-            [0]: the index of the middle node of the element
-            [1]: the index of the neighbor node of the middle node of the element
-            [2]: the index of the other neighbor node of the middle node of the element
+            torch.Tensor: the 2-nd order point index of the element \n
+                [0]: the index of the middle node of the element\n
+                [1]: the index of the neighbor node of the middle node of the element\n
+                [2]: the index of the other neighbor node of the middle node of the element\n
         """
         return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
 
+    def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
+        """
+        Refine Reference Grid Coordinates for mid-edge nodes
+        
+        Args:
+            RGC: List of Reference Grid Coordinates
+            nodes: Node coordinates
+            
+        Returns:
+            Updated RGC
+        """
+        mid_nodes_index = self.get_2nd_order_point_index()
+        RGC[0][mid_nodes_index[:, 0]] = (RGC[0][mid_nodes_index[:, 1]] + RGC[0][mid_nodes_index[:, 2]]) / 2 + (nodes[mid_nodes_index[:, 1]] + nodes[mid_nodes_index[:, 2]] - 2 * nodes[mid_nodes_index[:, 0]]) / 2
+        
+        return RGC
+    
+    def set_order(self, order: int) -> None:
+        self.order = order
+   

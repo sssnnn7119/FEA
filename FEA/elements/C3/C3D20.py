@@ -168,31 +168,6 @@ class C3D20(Element_3D):
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
     
-    def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
-        """
-        Refine Reference Grid Coordinates for mid-edge nodes
-        
-        Args:
-            RGC: List of Reference Grid Coordinates
-            nodes: Node coordinates
-            
-        Returns:
-            Updated RGC
-        """
-        mid_nodes_index = self.get_2nd_order_point_index()
-        RGC[0][mid_nodes_index[:, 0]] = (RGC[0][mid_nodes_index[:, 1]] + RGC[0][mid_nodes_index[:, 2]]) / 2 + (nodes[mid_nodes_index[:, 1]] + nodes[mid_nodes_index[:, 2]] - 2 * nodes[mid_nodes_index[:, 0]]) / 2
-        
-        return RGC
-    
-    def set_order(self, order: int) -> None:
-        """
-        Set the order of the element
-        
-        Args:
-            order: Element order (1 for linear, 2 for quadratic)
-        """
-        self.order = order
-    
     def get_2nd_order_point_index(self):
         """
         Get mid-edge node indices with their corner node neighbors

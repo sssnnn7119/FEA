@@ -106,17 +106,7 @@ class C3D10(Element_3D):
             
         self._pre_load_gaussian(p0, nodes=fea.nodes)
         super().initialize(fea)
-
-    def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
-        
-        mid_nodes_index = self.get_2nd_order_point_index()
-        RGC[0][mid_nodes_index[:, 0]] = (RGC[0][mid_nodes_index[:, 1]] + RGC[0][mid_nodes_index[:, 2]]) / 2 + (nodes[mid_nodes_index[:, 1]] + nodes[mid_nodes_index[:, 2]] - 2 * nodes[mid_nodes_index[:, 0]]) / 2
-        
-        return RGC
-    
-    def set_order(self, order: int) -> None:
-        self.order = order
-    
+ 
     def set_required_DoFs(
             self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
         """

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from .base import BaseElement
-from .C3 import C3D4, C3D6, C3D8R, C3D10, C3D15, C3D8, C3D20
+from .C3 import C3D4, C3D6, C3D8R, C3D10, C3D15, C3D8, C3D20, C3D15Transition12
 from . import materials
 
 

@@ -230,7 +230,7 @@ def generate_shell_from_surface(
             elem_index = c3d6_indices[start_idx + j].item()
             # Surface index 1 corresponds to the top triangular face (nodes 3, 4, 5) in C3D6
             surf_index = 1
-            offset_surface.append([elem_index, surf_index])
+            offset_surface.append(elem_index)
         
         # Store the offset surface set
         if offset_surface:
@@ -239,7 +239,7 @@ def generate_shell_from_surface(
             else:
                 offset_name = f"{surface_name}_offset"
 
-            offset_surface_sets[offset_name] = np.array(offset_surface)
+            offset_surface_sets[offset_name] = [(np.array(offset_surface), 1)]
         
         # Update the starting index for the next surface
         start_idx += num_triangles
