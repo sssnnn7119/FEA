@@ -7,14 +7,10 @@ if TYPE_CHECKING:
 import torch
 import numpy as np
 import FEA
-from FEA.elements.C3.C3D4 import C3D4
-from FEA.elements.C3.C3D6 import C3D6
-from FEA.elements.C3.C3D8 import C3D8
-from FEA.elements.C3.C3D10 import C3D10
-from FEA.elements.C3.C3D15 import C3D15
-from FEA.elements.C3.C3D20 import C3D20
+
 from FEA.reference_points import ReferencePoint
 
+from .C3 import C3D4, C3D6, C3D8, C3D10, C3D15, C3D20
 
 
 def fast_edge_lookup(edge_dict: dict, edges_tensor: torch.Tensor):

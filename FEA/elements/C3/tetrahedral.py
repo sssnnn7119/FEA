@@ -1,7 +1,76 @@
 import numpy as np
 import torch
 from .C3base import Element_3D
+from .surfaces import initialize_surfaces
 
+class C3D4(Element_3D):
+    """
+        Local coordinates:
+            origin: 0-th nodal
+            \ksi_0: 0-1 vector
+            \ksi_1: 0-2 vector
+            \ksi_2: 0-3 vector
+
+        face nodal always point at the void
+            face0: 021
+            face1: 013
+            face2: 123
+            face3: 032
+
+        shape_funtion:
+            N_i = \ksi_i * \ksi_i, i<=3
+    """
+
+    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
+
+        self.order = 1
+        
+    
+
+    def initialize(self, fea):
+        
+        self.shape_function = [
+            torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
+                          [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
+            torch.tensor([[[-1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                           [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                          [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+                           [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+                          [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+                           [0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]])
+        ]
+
+        self.num_nodes_per_elem = 4
+        self._num_gaussian = 1
+        self.gaussian_weight = torch.tensor([1 / 6])
+
+        p0 = torch.tensor([[0.25, 0.25, 0.25]])
+        self._pre_load_gaussian(p0, nodes=fea.nodes)
+        super().initialize(fea)
+        
+    
+    def find_surface(self, surface_ind: int,
+                           elems_ind: torch.Tensor):
+
+        index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
+
+        if index_now.shape[0] == 0:
+            return torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
+
+        if surface_ind == 0:
+            tri_elems = self._elems[index_now][:, [0, 2, 1]]
+        elif surface_ind == 1:
+            tri_elems = self._elems[index_now][:, [0, 1, 3]]
+        elif surface_ind == 2:
+            tri_elems = self._elems[index_now][:, [1, 2, 3]]
+        elif surface_ind == 3:
+            tri_elems = self._elems[index_now][:, [0, 3, 2]]
+        else:
+            raise ValueError(f"Invalid surface index: {surface_ind}")
+
+        return initialize_surfaces(tri_elems)
+    
 class C3D10(Element_3D):
     """
         Local coordinates:
@@ -145,37 +214,30 @@ class C3D10(Element_3D):
             return torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
         
         if self.order == 2:
+
             if surface_ind == 0:
-                return torch.cat([self._elems[index_now][:, [0,6,4]],
-                                self._elems[index_now][:, [1,4,5]],
-                                self._elems[index_now][:, [2,5,6]],
-                                self._elems[index_now][:, [4,6,5]],], dim=0)
+                tri_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
             elif surface_ind == 1:
-                return torch.cat([self._elems[index_now][:, [0,4,7]],
-                                self._elems[index_now][:, [1,8,4]],
-                                self._elems[index_now][:, [3,7,8]],
-                                self._elems[index_now][:, [4,8,7]],], dim=0)
+                tri_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
             elif surface_ind == 2:
-                return torch.cat([self._elems[index_now][:, [1,5,8]],
-                                self._elems[index_now][:, [2,9,5]],
-                                self._elems[index_now][:, [3,8,9]],
-                                self._elems[index_now][:, [5,9,8]],], dim=0)
+                tri_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
             elif surface_ind == 3:
-                return torch.cat([self._elems[index_now][:, [0,7,6]],
-                                self._elems[index_now][:, [2,6,9]],
-                                self._elems[index_now][:, [3,9,7]],
-                                self._elems[index_now][:, [7,9,6]],], dim=0)
+                tri_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
             else:
                 raise ValueError(f"Invalid surface index: {surface_ind}")
 
+            return initialize_surfaces(tri_elems)
+
         elif self.order == 1:
             if surface_ind == 0:
-                return self._elems[index_now][:, [0, 2, 1]]
+                tri_elems = self._elems[index_now][:, [0, 2, 1]]
             elif surface_ind == 1:
-                return self._elems[index_now][:, [0, 1, 3]]
+                tri_elems = self._elems[index_now][:, [0, 1, 3]]
             elif surface_ind == 2:
-                return self._elems[index_now][:, [1, 2, 3]]
+                tri_elems = self._elems[index_now][:, [1, 2, 3]]
             elif surface_ind == 3:
-                return self._elems[index_now][:, [0, 3, 2]]
+                tri_elems = self._elems[index_now][:, [0, 3, 2]]
             else:
                 raise ValueError(f"Invalid surface index: {surface_ind}")
+            return initialize_surfaces(tri_elems)
+            

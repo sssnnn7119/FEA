@@ -3,7 +3,7 @@ import torch
 from .base import BaseElement
 from .C3 import C3D4, C3D6, C3D8R, C3D10, C3D15, C3D8, C3D20, C3D15Transition12
 from . import materials
-
+from .C3.surfaces import initialize_surfaces, T3, T6, Q4, Q8, BaseSurface
 
 # methods for the elements
 from .generate_shell import generate_shell_from_surface, add_shell_elements_to_model

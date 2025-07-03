@@ -8,6 +8,7 @@ import torch
 from . import loads
 from . import elements
 from . import constraints
+from .elements.C3 import surfaces
 from .reference_points import ReferencePoint
 from .solver import linear_solver as _linear_Solver
 from .solver import lbfgs as _lbfgs
@@ -1314,14 +1315,14 @@ class FEA_Main():
 
         raise KeyError(f"Surface set '{name}' not found in the model.")
 
-    def get_surface_triangles(self, name: str) -> list[torch.Tensor]:
+    def get_surface_elements(self, name: str) -> list[surfaces.BaseSurface]:
         """        Get the triangles of a surface set by name.  
         
         Args:
             name (str): Name of the surface set.
             
         Returns:
-            list[torch.Tensor]: List of triangles in the surface set.
+            list[BaseSurface]: List of triangles in the surface set.
             
         Raises:
             ValueError: If the surface set is not found.
@@ -1337,7 +1338,7 @@ class FEA_Main():
         if len(surface) == 0:
             raise ValueError(f"Surface {surf_ind} not found in the model.")
         else:
-            return surface
+            return surfaces.merge_surfaces(surface)
 
     def delete_node_set(self, name: str):
         """

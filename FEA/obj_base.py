@@ -24,6 +24,11 @@ class BaseObj():
         The index of the extra RGC for this object.
         """
 
+        self._fea: FEA_Main = None
+        """
+        The FEA_Main object that this object belongs to.
+        """
+
     def set_RGC_index(self, index: int) -> None:
         """
         Set the index of the extra RGC for this object.
@@ -39,7 +44,6 @@ class BaseObj():
 
     def modify_RGC(self, RGC: list[torch.Tensor]) -> torch.Tensor:
         return RGC
-
 
     def initialize(self, fea: FEA_Main):
         self._fea = fea
