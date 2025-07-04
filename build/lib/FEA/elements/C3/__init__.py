@@ -1,7 +1,5 @@
-from .C3D4 import C3D4
-from .C3D10 import C3D10
-from .C3D6 import C3D6
-from .C3D15 import C3D15, C3D15Transition12
+
 from .C3base import Element_3D
-from .C3D8 import C3D8, C3D8R
-from .C3D20 import C3D20
+from .brick import C3D8, C3D8R, C3D20
+from .wedge import C3D6, C3D15, C3D15Transition12
+from .tetrahedral import C3D4, C3D10

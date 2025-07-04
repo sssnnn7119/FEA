@@ -8,6 +8,7 @@ import torch
 from . import loads
 from . import elements
 from . import constraints
+from .elements.C3 import surfaces
 from .reference_points import ReferencePoint
 from .solver import linear_solver as _linear_Solver
 from .solver import lbfgs as _lbfgs
@@ -481,8 +482,8 @@ class FEA_Main():
                          RGC: list[torch.Tensor],
                          tol_error: float):
 
-        GC = self._RGC2GC(RGC)
-        # RGC = self._GC2RGC(GC)
+        GC = self._RGC2GC(RGC).requires_grad_()
+        RGC = self._GC2RGC(GC)
 
         # iteration now
         self._iter_now = 0
@@ -520,6 +521,8 @@ class FEA_Main():
             t1 = time.time()
             R, K_indices, K_values = self._assemble_Stiffness_Matrix(
                 RGC=RGC)
+
+            
 
             self._iter_now += 1
 
@@ -784,7 +787,7 @@ class FEA_Main():
         # precondition for the linear equation
         index = torch.where(K_indices[0] == K_indices[1])[0]
         diag = torch.zeros_like(R).scatter_add(0, K_indices[0, index],
-                                               torch.sqrt(K_values[index]))
+                                               K_values[index]).sqrt()
         K_values_preconditioned = K_values / diag[K_indices[0]]
         K_values_preconditioned = K_values_preconditioned / diag[K_indices[1]]
         R_preconditioned = R / diag
@@ -1314,14 +1317,14 @@ class FEA_Main():
 
         raise KeyError(f"Surface set '{name}' not found in the model.")
 
-    def get_surface_triangles(self, name: str) -> list[torch.Tensor]:
+    def get_surface_elements(self, name: str) -> list[surfaces.BaseSurface]:
         """        Get the triangles of a surface set by name.  
         
         Args:
             name (str): Name of the surface set.
             
         Returns:
-            list[torch.Tensor]: List of triangles in the surface set.
+            list[BaseSurface]: List of triangles in the surface set.
             
         Raises:
             ValueError: If the surface set is not found.
@@ -1337,7 +1340,7 @@ class FEA_Main():
         if len(surface) == 0:
             raise ValueError(f"Surface {surf_ind} not found in the model.")
         else:
-            return surface
+            return surfaces.merge_surfaces(surface)
 
     def delete_node_set(self, name: str):
         """

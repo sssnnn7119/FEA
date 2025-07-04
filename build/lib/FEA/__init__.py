@@ -1,6 +1,7 @@
 import torch
 from . import constraints, elements, loads
 from .elements import materials
+from .elements.C3 import surfaces
 from .FEA_INP import FEA_INP
 from .Main import FEA_Main
 from .reference_points import ReferencePoint

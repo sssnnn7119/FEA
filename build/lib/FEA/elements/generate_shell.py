@@ -144,7 +144,7 @@ def generate_shell_from_surface(
     all_surface_elems = []
 
     for surface_name in surface_names:
-        surface_elems = fe.get_surface_triangles(surface_name)
+        surface_elems = [fe.get_surface_elements(surface_name)[0]._elems]
 
         # Check if surface_elems is a list or a single tensor
         if isinstance(surface_elems, list):
@@ -216,7 +216,7 @@ def generate_shell_from_surface(
     for i in range(len(surface_names)):
 
         surface_name = surface_names[i]
-        surface_elems = fe.get_surface_triangles(surface_name)
+        surface_elems = [fe.get_surface_elements(surface_name)[0]._elems]
         
         # Count triangles in this surface
         num_triangles = 0

@@ -9,7 +9,7 @@ import FEA
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
 
-torch.set_default_device(torch.device('cuda:0'))
+torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
 fem = FEA.FEA_INP()
@@ -20,7 +20,7 @@ fem = FEA.FEA_INP()
 # fem.Read_INP(
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
-
+ 
 fem.Read_INP(current_path + '/C3D10.inp')
 
 fe = FEA.from_inp(fem)
@@ -48,7 +48,7 @@ indexNodes = np.where((abs(fe.nodes[:, 2] - 80)
 #     Constraints.Couple(
 #         indexNodes=indexNodes,
 #         rp_index=2))
-# fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
+fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
 
 
 
@@ -75,7 +75,7 @@ print('ok')
 
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
-extern_surf = fem.Find_Surface(['surface_0_All'])[1]
+extern_surf = fem.Find_Surface(['surface_1_All'])[1]
 # extern_surf = fem.part['final_model'].surfaces['surface_1_All']
 
 from mayavi import mlab

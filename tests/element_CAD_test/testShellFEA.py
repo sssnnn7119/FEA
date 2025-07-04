@@ -339,7 +339,7 @@ if __name__ == "__main__":
         mu=torch.tensor(0.48, device=fe.nodes.device),
         kappa=torch.tensor(4.8, device=fe.nodes.device)))
     
-    fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All_offset', pressure=0.8),
+    fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All_offset', pressure=0.02),
                     name='pressure-1')
 
     bc_dof = np.where((abs(fe.nodes[:, 2] - 0)
