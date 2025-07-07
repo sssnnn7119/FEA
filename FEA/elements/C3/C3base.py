@@ -6,6 +6,7 @@ import torch
 import numpy as np
 from ..base import BaseElement
 
+
 class Element_3D(BaseElement):
 
     def __init__(self, elems_index: torch.Tensor,
@@ -76,11 +77,18 @@ class Element_3D(BaseElement):
                 
         """
                 
-        self.order: int
+        self.order: int = 1
         """
             whether to reduce the order of the element
             if True, the element will be reduced to 4 nodes
             if False, the element will remain 10 nodes
+        """
+
+        self.order_faces: torch.Tensor 
+        """            
+        the order of the faces of the element
+            shape: [surface, element]
+            0: linear, 1: quadratic
         """
 
         self._num_gaussian: int
@@ -409,6 +417,10 @@ class Element_3D(BaseElement):
         RGC_remain_index[0][self._elems.unique()] = True
         return RGC_remain_index
     
+
+
+    # region second order methods
+
     def get_2nd_order_point_index(self):
         """
         get the 2-nd order point index of the element that lies in the middle of the element
@@ -440,3 +452,5 @@ class Element_3D(BaseElement):
     def set_order(self, order: int) -> None:
         self.order = order
    
+
+    # endregion second order methods

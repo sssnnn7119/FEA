@@ -228,9 +228,9 @@ def define_hex8():
         [0, 1, 2, 3],  # Bottom face
         [4, 5, 6, 7],  # Top face
         [0, 1, 5, 4],  # Front face
+        [1, 2, 6, 5],   # Right face
         [3, 2, 6, 7],  # Back face
         [0, 3, 7, 4],  # Left face
-        [1, 2, 6, 5]   # Right face
     ]
   
     # 8 integration points for full integration (2x2x2)
@@ -434,9 +434,9 @@ def define_hex20():
         [0, 8, 1, 9, 2, 10, 3, 11],    # Bottom face
         [4, 12, 5, 13, 6, 14, 7, 15],  # Top face
         [0, 8, 1, 17, 5, 12, 4, 16],   # Front face
+        [1, 9, 2, 18, 6, 13, 5, 17],    # Right face
         [3, 10, 2, 18, 6, 14, 7, 19],  # Back face
         [0, 11, 3, 19, 7, 15, 4, 16],  # Left face
-        [1, 9, 2, 18, 6, 13, 5, 17]    # Right face
     ]
   
     # 27 integration points for full integration (3x3x3)
@@ -488,7 +488,7 @@ def visualize_nodes():
     # Define face names for each element type
     tet4_face_names = ["Base", "Side 1", "Side 2", "Side 3"]
     wedge6_face_names = ["Bottom", "Top", "Side 1", "Side 2", "Side 3"]
-    hex8_face_names = ["Bottom (Z-)", "Top (Z+)", "Front (Y-)", "Back (Y+)", "Left (X-)", "Right (X+)"]
+    hex8_face_names = ["Bottom (Z-)", "Top (Z+)", "Front (Y-)", "Right (X+)", "Back (Y+)", "Left (X-)"]
     first_order_face_names = [tet4_face_names, wedge6_face_names, hex8_face_names]
     
     fig, ax_total = create_figure(f"Node Numbering", subplot_size=(3, 2))
