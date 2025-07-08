@@ -482,7 +482,7 @@ class FEA_Main():
                          RGC: list[torch.Tensor],
                          tol_error: float):
 
-        GC = self._RGC2GC(RGC).requires_grad_()
+        GC = self._RGC2GC(RGC)
         RGC = self._GC2RGC(GC)
 
         # iteration now
@@ -557,6 +557,9 @@ class FEA_Main():
                     low_alpha = 0
 
             if low_alpha > 10:
+                if R.abs().max() < 1e-3:
+                    print('low alpha, but convergence achieved')
+                    break
                 return False
 
             # update the GC

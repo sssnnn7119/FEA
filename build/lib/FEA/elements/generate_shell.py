@@ -10,18 +10,18 @@ import numpy as np
 if TYPE_CHECKING:
     from ..Main import FEA_Main
 
-def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, surface_node_indices: torch.Tensor):
+def calculate_new_nodes(node_idx_map: torch.Tensor, nodes: torch.Tensor, surface_elems: torch.Tensor, surface_node_indices: torch.Tensor, shell_thickness: float):
     """
     Calculate the averaged normal vectors for each node in a triangular mesh.
     
     Args:
-        fe: The FEA model instance
-        surface_elems: Tensor of triangular element connectivity (N x 3)
-        surface_node_indices: Tensor of surface's node indices in the surface
-        
+        node_idx_map (torch.Tensor): Mapping from global node indices to local indices
+        nodes (torch.Tensor): Tensor of node coordinates (shape: [num_nodes, 3])
+        surface_elems (torch.Tensor): Tensor of surface elements (triangles) (shape: [num_elements, 3])
+        surface_node_indices (torch.Tensor): Unique node indices for the surface elements
+        shell_thickness (float): Thickness to offset the nodes by in the normal direction   
     Returns:
         node_normals: Tensor of normalized normal vectors for each node
-        node_idx_map: Mapping from global node indices to local indices
     """
     # Extract vertices for each triangle
     v0 = nodes[surface_elems[:, 0]]
@@ -35,15 +35,6 @@ def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, sur
     normal_lengths = torch.norm(normals, dim=1, keepdim=True)
     mask = normal_lengths > 1e-10  # Avoid division by zero
     normals = torch.where(mask, normals / normal_lengths, normals)
-
-    # Create a tensor for mapping from global node indices to local indices
-    max_node_idx = torch.max(surface_elems).item()
-    node_idx_map = torch.full((max_node_idx + 1, ),
-                            -1,
-                            device=nodes.device,
-                            dtype=torch.int64)
-    node_idx_map[surface_node_indices] = torch.arange(
-        surface_node_indices.shape[0], device=nodes.device)
 
     # Create the indices for our sparse accumulation matrix
     rows = torch.cat([
@@ -110,8 +101,310 @@ def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, sur
     normal_lengths = torch.norm(smoothed_normals, dim=1, keepdim=True)
     mask = normal_lengths > 1e-10
     node_normals = torch.where(mask, smoothed_normals / normal_lengths, smoothed_normals)
+
+    # Create new nodes by offsetting the original nodes by the thickness (vectorized)
+    new_nodes = nodes[surface_node_indices] + node_normals * shell_thickness
+
+    # Advanced mesh smoothing to prevent excessive distortion
+    # new_nodes = smooth_offset_mesh(
+    #     original_nodes=nodes[surface_node_indices],
+    #     new_nodes=new_nodes,
+    #     surface_elems=surface_elems,
+    #     node_idx_map=node_idx_map,
+    #     surface_node_indices=surface_node_indices,
+    #     shell_thickness=shell_thickness,
+    #     max_iterations=5,
+    #     convergence_tolerance=1e-4
+    # )
     
-    return node_normals, node_idx_map
+    return new_nodes
+
+
+def smooth_offset_mesh(original_nodes: torch.Tensor, 
+                      new_nodes: torch.Tensor,
+                      surface_elems: torch.Tensor,
+                      node_idx_map: torch.Tensor,
+                      surface_node_indices: torch.Tensor,
+                      shell_thickness: float,
+                      max_iterations: int = 5,
+                      convergence_tolerance: float = 1e-4) -> torch.Tensor:
+    """
+    Advanced smoothing algorithm to prevent excessive mesh distortion after offset.
+    
+    This algorithm combines:
+    1. Laplacian smoothing to reduce irregularities
+    2. Element quality preservation to prevent inversion
+    3. Thickness constraint to maintain shell thickness
+    4. Boundary preservation for sharp features
+    
+    Args:
+        original_nodes: Original surface node coordinates
+        new_nodes: Initial offset node coordinates
+        surface_elems: Surface triangle connectivity
+        node_idx_map: Mapping from global to local node indices
+        surface_node_indices: Global indices of surface nodes
+        shell_thickness: Target shell thickness
+        max_iterations: Maximum smoothing iterations
+        convergence_tolerance: Convergence criterion for smoothing
+        
+    Returns:
+        torch.Tensor: Smoothed offset node coordinates
+    """
+    
+    # Create adjacency information for smoothing
+    adjacency_info = build_adjacency_info(surface_elems, node_idx_map, surface_node_indices)
+    
+    # Identify boundary and feature nodes that should be preserved
+    boundary_mask = identify_boundary_nodes(surface_elems, node_idx_map, surface_node_indices)
+    
+    # Initial quality assessment
+    initial_quality = compute_element_quality(new_nodes, surface_elems, node_idx_map)
+    
+    smoothed_nodes = new_nodes.clone()
+    
+    for iteration in range(max_iterations):
+        previous_nodes = smoothed_nodes.clone()
+        
+        # Apply Laplacian smoothing with quality constraints
+        smoothed_nodes = apply_constrained_laplacian_smoothing(
+            smoothed_nodes, original_nodes, adjacency_info, boundary_mask, shell_thickness
+        )
+        
+        # Check and correct inverted elements
+        smoothed_nodes = correct_inverted_elements(
+            smoothed_nodes, original_nodes, surface_elems, node_idx_map, shell_thickness
+        )
+        
+        # Enforce thickness constraints
+        smoothed_nodes = enforce_thickness_constraints(
+            smoothed_nodes, original_nodes, shell_thickness, boundary_mask
+        )
+        
+        # Check convergence
+        displacement = torch.norm(smoothed_nodes - previous_nodes, dim=1)
+        max_displacement = torch.max(displacement)
+        
+        if max_displacement < convergence_tolerance:
+            break
+    
+    # Final quality check and correction
+    final_quality = compute_element_quality(smoothed_nodes, surface_elems, node_idx_map)
+    quality_improvement_mask = final_quality > initial_quality * 0.5  # Allow 50% quality reduction max
+    
+    # Use original offset for nodes where quality degraded too much
+    for elem_idx in range(surface_elems.shape[0]):
+        if not quality_improvement_mask[elem_idx]:
+            local_nodes = node_idx_map[surface_elems[elem_idx]]
+            smoothed_nodes[local_nodes] = new_nodes[local_nodes]
+    
+    return smoothed_nodes
+
+
+def build_adjacency_info(surface_elems: torch.Tensor, 
+                        node_idx_map: torch.Tensor,
+                        surface_node_indices: torch.Tensor) -> dict:
+    """Build adjacency information for mesh smoothing."""
+    num_nodes = surface_node_indices.shape[0]
+    
+    # Build node-to-node adjacency
+    rows = torch.cat([
+        surface_elems[:, 0], surface_elems[:, 0], 
+        surface_elems[:, 1], surface_elems[:, 1],
+        surface_elems[:, 2], surface_elems[:, 2]
+    ])
+    cols = torch.cat([
+        surface_elems[:, 1], surface_elems[:, 2],
+        surface_elems[:, 0], surface_elems[:, 2],
+        surface_elems[:, 0], surface_elems[:, 1]
+    ])
+    
+    # Map to local indices
+    rows_local = node_idx_map[rows]
+    cols_local = node_idx_map[cols]
+    
+    # Create adjacency lists
+    adjacency_list = [[] for _ in range(num_nodes)]
+    for i in range(rows_local.shape[0]):
+        row, col = rows_local[i].item(), cols_local[i].item()
+        if col not in adjacency_list[row]:
+            adjacency_list[row].append(col)
+    
+    return {'adjacency_list': adjacency_list}
+
+
+def identify_boundary_nodes(surface_elems: torch.Tensor,
+                           node_idx_map: torch.Tensor,
+                           surface_node_indices: torch.Tensor) -> torch.Tensor:
+    """Identify boundary and feature nodes that should be preserved during smoothing."""
+    num_nodes = surface_node_indices.shape[0]
+    
+    # Count edge occurrences to find boundary edges
+    edges = torch.cat([
+        torch.stack([surface_elems[:, 0], surface_elems[:, 1]], dim=1),
+        torch.stack([surface_elems[:, 1], surface_elems[:, 2]], dim=1),
+        torch.stack([surface_elems[:, 2], surface_elems[:, 0]], dim=1)
+    ], dim=0)
+    
+    # Sort edges to make them consistent
+    edges_sorted = torch.sort(edges, dim=1)[0]
+    
+    # Find unique edges and their counts
+    unique_edges, counts = torch.unique(edges_sorted, dim=0, return_counts=True)
+    boundary_edges = unique_edges[counts == 1]
+    
+    # Mark nodes on boundary edges
+    boundary_mask = torch.zeros(num_nodes, dtype=torch.bool, device=surface_elems.device)
+    if boundary_edges.shape[0] > 0:
+        boundary_nodes = torch.unique(boundary_edges.flatten())
+        boundary_local = node_idx_map[boundary_nodes]
+        boundary_mask[boundary_local] = True
+    
+    return boundary_mask
+
+
+def apply_constrained_laplacian_smoothing(smoothed_nodes: torch.Tensor,
+                                        original_nodes: torch.Tensor,
+                                        adjacency_info: dict,
+                                        boundary_mask: torch.Tensor,
+                                        shell_thickness: float) -> torch.Tensor:
+    """Apply Laplacian smoothing with constraints."""
+    new_positions = smoothed_nodes.clone()
+    adjacency_list = adjacency_info['adjacency_list']
+    
+    for i in range(len(adjacency_list)):
+        if boundary_mask[i] or len(adjacency_list[i]) == 0:
+            continue  # Skip boundary nodes and isolated nodes
+        
+        # Compute Laplacian smoothed position
+        neighbors = torch.tensor(adjacency_list[i], device=smoothed_nodes.device)
+        neighbor_positions = smoothed_nodes[neighbors]
+        laplacian_pos = torch.mean(neighbor_positions, dim=0)
+        
+        # Blend with current position (0.5 damping factor)
+        smoothing_factor = 0.5
+        new_positions[i] = (1 - smoothing_factor) * smoothed_nodes[i] + smoothing_factor * laplacian_pos
+        
+        # Constrain to maintain approximate thickness
+        original_to_new = new_positions[i] - original_nodes[i]
+        thickness_ratio = torch.norm(original_to_new) / shell_thickness
+        if thickness_ratio > 1.5:  # Don't allow thickness to exceed 150% of target
+            original_to_new = original_to_new / thickness_ratio * 1.5
+            new_positions[i] = original_nodes[i] + original_to_new
+    
+    return new_positions
+
+
+def correct_inverted_elements(smoothed_nodes: torch.Tensor,
+                             original_nodes: torch.Tensor,
+                             surface_elems: torch.Tensor,
+                             node_idx_map: torch.Tensor,
+                             shell_thickness: float) -> torch.Tensor:
+    """Detect and correct inverted elements."""
+    corrected_nodes = smoothed_nodes.clone()
+    
+    for elem_idx in range(surface_elems.shape[0]):
+        local_indices = node_idx_map[surface_elems[elem_idx]]
+        
+        # Get triangle vertices
+        v0 = smoothed_nodes[local_indices[0]]
+        v1 = smoothed_nodes[local_indices[1]]
+        v2 = smoothed_nodes[local_indices[2]]
+        
+        # Compute triangle normal
+        edge1 = v1 - v0
+        edge2 = v2 - v0
+        normal = torch.cross(edge1, edge2)
+        area = torch.norm(normal) * 0.5
+        
+        # Check for degenerate or inverted triangle
+        if area < 1e-10:  # Very small area indicates degeneration
+            # Reset to original offset positions
+            orig_v0 = original_nodes[local_indices[0]]
+            orig_v1 = original_nodes[local_indices[1]]
+            orig_v2 = original_nodes[local_indices[2]]
+            
+            # Compute original normal
+            orig_edge1 = orig_v1 - orig_v0
+            orig_edge2 = orig_v2 - orig_v0
+            orig_normal = torch.cross(orig_edge1, orig_edge2)
+            orig_normal = orig_normal / (torch.norm(orig_normal) + 1e-10)
+            
+            # Reset positions with simple offset
+            corrected_nodes[local_indices[0]] = orig_v0 + orig_normal * shell_thickness
+            corrected_nodes[local_indices[1]] = orig_v1 + orig_normal * shell_thickness
+            corrected_nodes[local_indices[2]] = orig_v2 + orig_normal * shell_thickness
+    
+    return corrected_nodes
+
+
+def enforce_thickness_constraints(smoothed_nodes: torch.Tensor,
+                                 original_nodes: torch.Tensor,
+                                 shell_thickness: float,
+                                 boundary_mask: torch.Tensor) -> torch.Tensor:
+    """Enforce shell thickness constraints."""
+    constrained_nodes = smoothed_nodes.clone()
+    
+    for i in range(smoothed_nodes.shape[0]):
+        if boundary_mask[i]:
+            continue  # Skip boundary nodes
+        
+        # Compute current offset vector
+        offset_vector = smoothed_nodes[i] - original_nodes[i]
+        current_thickness = torch.norm(offset_vector)
+        
+        # Constrain thickness to be within reasonable bounds
+        min_thickness = shell_thickness * 0.5
+        max_thickness = shell_thickness * 1.5
+        
+        if current_thickness < min_thickness:
+            # Scale up to minimum thickness
+            if current_thickness > 1e-10:
+                scale_factor = min_thickness / current_thickness
+                constrained_nodes[i] = original_nodes[i] + offset_vector * scale_factor
+            else:
+                # Use default normal direction
+                constrained_nodes[i] = original_nodes[i] + torch.tensor([0., 0., min_thickness], device=smoothed_nodes.device)
+        
+        elif current_thickness > max_thickness:
+            # Scale down to maximum thickness
+            scale_factor = max_thickness / current_thickness
+            constrained_nodes[i] = original_nodes[i] + offset_vector * scale_factor
+    
+    return constrained_nodes
+
+
+def compute_element_quality(nodes: torch.Tensor,
+                           surface_elems: torch.Tensor,
+                           node_idx_map: torch.Tensor) -> torch.Tensor:
+    """Compute element quality metric for triangles."""
+    qualities = torch.zeros(surface_elems.shape[0], device=nodes.device)
+    
+    for elem_idx in range(surface_elems.shape[0]):
+        local_indices = node_idx_map[surface_elems[elem_idx]]
+        
+        # Get triangle vertices
+        v0 = nodes[local_indices[0]]
+        v1 = nodes[local_indices[1]]
+        v2 = nodes[local_indices[2]]
+        
+        # Compute edge lengths
+        a = torch.norm(v1 - v2)
+        b = torch.norm(v2 - v0)
+        c = torch.norm(v0 - v1)
+        
+        # Compute area using cross product
+        edge1 = v1 - v0
+        edge2 = v2 - v0
+        area = torch.norm(torch.cross(edge1, edge2)) * 0.5
+        
+        # Quality metric: ratio of area to squared perimeter (normalized)
+        perimeter = a + b + c
+        if perimeter > 1e-10 and area > 1e-10:
+            qualities[elem_idx] = 4.0 * np.sqrt(3.0) * area / (perimeter * perimeter)
+        else:
+            qualities[elem_idx] = 0.0  # Degenerate triangle
+    
+    return qualities
 
 
 def generate_shell_from_surface(
@@ -171,10 +464,17 @@ def generate_shell_from_surface(
         surface_elems
     )  # Calculate triangle normals for each triangle in the surface using vectorized operations
 
-    node_normals, node_idx_map = calculate_node_normals(nodes=fe.nodes, surface_elems=surface_elems, surface_node_indices=surface_node_indices)
+    # Create a tensor for mapping from global node indices to local indices
+    max_node_idx = torch.max(surface_elems).item()
+    node_idx_map = torch.full((max_node_idx + 1, ),
+                            -1,
+                            device=fe.nodes.device,
+                            dtype=torch.int64)
+    node_idx_map[surface_node_indices] = torch.arange(
+        surface_node_indices.shape[0], device=fe.nodes.device)
 
-    # Create new nodes by offsetting the original nodes by the thickness (vectorized)
-    new_nodes = fe.nodes[surface_node_indices] + node_normals * shell_thickness
+    # Calculate new nodes by offsetting the original nodes in the normal direction
+    new_nodes = calculate_new_nodes(node_idx_map=node_idx_map, nodes=fe.nodes, surface_elems=surface_elems, surface_node_indices=surface_node_indices, shell_thickness=shell_thickness)
 
     # Create C3D6 (wedge) elements
     # Each triangle in the surface becomes a C3D6 element

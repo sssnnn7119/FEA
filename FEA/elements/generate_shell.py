@@ -10,18 +10,18 @@ import numpy as np
 if TYPE_CHECKING:
     from ..Main import FEA_Main
 
-def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, surface_node_indices: torch.Tensor):
+def calculate_new_nodes(node_idx_map: torch.Tensor, nodes: torch.Tensor, surface_elems: torch.Tensor, surface_node_indices: torch.Tensor, shell_thickness: float):
     """
     Calculate the averaged normal vectors for each node in a triangular mesh.
     
     Args:
-        fe: The FEA model instance
-        surface_elems: Tensor of triangular element connectivity (N x 3)
-        surface_node_indices: Tensor of surface's node indices in the surface
-        
+        node_idx_map (torch.Tensor): Mapping from global node indices to local indices
+        nodes (torch.Tensor): Tensor of node coordinates (shape: [num_nodes, 3])
+        surface_elems (torch.Tensor): Tensor of surface elements (triangles) (shape: [num_elements, 3])
+        surface_node_indices (torch.Tensor): Unique node indices for the surface elements
+        shell_thickness (float): Thickness to offset the nodes by in the normal direction   
     Returns:
         node_normals: Tensor of normalized normal vectors for each node
-        node_idx_map: Mapping from global node indices to local indices
     """
     # Extract vertices for each triangle
     v0 = nodes[surface_elems[:, 0]]
@@ -35,15 +35,6 @@ def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, sur
     normal_lengths = torch.norm(normals, dim=1, keepdim=True)
     mask = normal_lengths > 1e-10  # Avoid division by zero
     normals = torch.where(mask, normals / normal_lengths, normals)
-
-    # Create a tensor for mapping from global node indices to local indices
-    max_node_idx = torch.max(surface_elems).item()
-    node_idx_map = torch.full((max_node_idx + 1, ),
-                            -1,
-                            device=nodes.device,
-                            dtype=torch.int64)
-    node_idx_map[surface_node_indices] = torch.arange(
-        surface_node_indices.shape[0], device=nodes.device)
 
     # Create the indices for our sparse accumulation matrix
     rows = torch.cat([
@@ -110,9 +101,11 @@ def calculate_node_normals(nodes: torch.Tensor, surface_elems: torch.Tensor, sur
     normal_lengths = torch.norm(smoothed_normals, dim=1, keepdim=True)
     mask = normal_lengths > 1e-10
     node_normals = torch.where(mask, smoothed_normals / normal_lengths, smoothed_normals)
-    
-    return node_normals, node_idx_map
 
+    # Create new nodes by offsetting the original nodes by the thickness (vectorized)
+    new_nodes = nodes[surface_node_indices] + node_normals * shell_thickness
+    
+    return new_nodes
 
 def generate_shell_from_surface(
         fe: FEA_Main, surface_names: list[str], shell_thickness: float, surface_new_name: Optional[list[str]] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
@@ -171,10 +164,17 @@ def generate_shell_from_surface(
         surface_elems
     )  # Calculate triangle normals for each triangle in the surface using vectorized operations
 
-    node_normals, node_idx_map = calculate_node_normals(nodes=fe.nodes, surface_elems=surface_elems, surface_node_indices=surface_node_indices)
+    # Create a tensor for mapping from global node indices to local indices
+    max_node_idx = torch.max(surface_elems).item()
+    node_idx_map = torch.full((max_node_idx + 1, ),
+                            -1,
+                            device=fe.nodes.device,
+                            dtype=torch.int64)
+    node_idx_map[surface_node_indices] = torch.arange(
+        surface_node_indices.shape[0], device=fe.nodes.device)
 
-    # Create new nodes by offsetting the original nodes by the thickness (vectorized)
-    new_nodes = fe.nodes[surface_node_indices] + node_normals * shell_thickness
+    # Calculate new nodes by offsetting the original nodes in the normal direction
+    new_nodes = calculate_new_nodes(node_idx_map=node_idx_map, nodes=fe.nodes, surface_elems=surface_elems, surface_node_indices=surface_node_indices, shell_thickness=shell_thickness)
 
     # Create C3D6 (wedge) elements
     # Each triangle in the surface becomes a C3D6 element

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from .C3base import Element_3D
-
+from .surfaces import initialize_surfaces
 
 class C3D8(Element_3D):
     """
@@ -25,12 +25,12 @@ class C3D8(Element_3D):
             7: (-1,  1,  1) - corner
             
     Face definitions:
-        face0: 0123 (Bottom face, r=-1)
+        face0: 0321 (Bottom face, r=-1)
         face1: 4567 (Top face, r=1)
         face2: 0154 (Left face, g=-1)
         face3: 1265 (Right face, g=1)
-        face4: 0431 (Front face, h=-1)
-        face5: 5726 (Back face, h=1)
+        face4: 2376 (Front face, h=-1)
+        face5: 0473 (Back face, h=1)
 
     Shape functions:
         N_i = 1/8 * (1 + g*g_i) * (1 + h*h_i) * (1 + r*r_i)
@@ -184,25 +184,28 @@ class C3D8(Element_3D):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
 
         if index_now.shape[0] == 0:
-            return torch.empty([0, 4],
+            quad_elems = torch.empty([0, 4],
                                dtype=torch.long,
                                device=self._elems.device)
+            return initialize_surfaces(quad_elems)
 
-        # Return appropriate face nodes according to Abaqus convention
-        if surface_ind == 0:  # Bottom face (r=-1): nodes 0,1,2,3
-            return self._elems[index_now][:, [0, 1, 2, 3]]
-        elif surface_ind == 1:  # Top face (r=1): nodes 4,5,6,7
-            return self._elems[index_now][:, [4, 5, 6, 7]]
-        elif surface_ind == 2:  # Left face (g=-1): nodes 0,4,7,3
-            return self._elems[index_now][:, [0, 4, 7, 3]]
-        elif surface_ind == 3:  # Right face (g=1): nodes 1,2,6,5
-            return self._elems[index_now][:, [1, 2, 6, 5]]
-        elif surface_ind == 4:  # Front face (h=-1): nodes 0,1,5,4
-            return self._elems[index_now][:, [0, 1, 5, 4]]
-        elif surface_ind == 5:  # Back face (h=1): nodes 3,2,6,7
-            return self._elems[index_now][:, [3, 2, 6, 7]]
+        # Return appropriate face nodes according to face definitions in comments
+        if surface_ind == 0:  # Bottom face (r=-1): face0: 0321
+            quad_elems = self._elems[index_now][:, [0, 3, 2, 1]]
+        elif surface_ind == 1:  # Top face (r=1): face1: 4567
+            quad_elems = self._elems[index_now][:, [4, 5, 6, 7]]
+        elif surface_ind == 2:  # Left face (g=-1): face2: 0154
+            quad_elems = self._elems[index_now][:, [0, 1, 5, 4]]
+        elif surface_ind == 3:  # Right face (g=1): face3: 1265
+            quad_elems = self._elems[index_now][:, [1, 2, 6, 5]]
+        elif surface_ind == 4:  # Front face (h=-1): face4: 2376
+            quad_elems = self._elems[index_now][:, [2, 3, 7, 6]]
+        elif surface_ind == 5:  # Back face (h=1): face5: 0473
+            quad_elems = self._elems[index_now][:, [0, 4, 7, 3]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
+
+        return initialize_surfaces(quad_elems)
 
 
 class C3D8R(C3D8):
@@ -227,12 +230,12 @@ class C3D8R(C3D8):
             7: (-1,  1,  1) - corner
             
     Face definitions:
-        face0: 0123 (Bottom face, r=-1)
+        face0: 0321 (Bottom face, r=-1)
         face1: 4567 (Top face, r=1)
         face2: 0154 (Left face, g=-1)
         face3: 1265 (Right face, g=1)
-        face4: 0431 (Front face, h=-1)
-        face5: 5726 (Back face, h=1)
+        face4: 2376 (Front face, h=-1)
+        face5: 0473 (Back face, h=1)
 
     Shape functions:
         N_i = 1/8 * (1 + g*g_i) * (1 + h*h_i) * (1 + r*r_i)
@@ -620,10 +623,12 @@ class C3D20(Element_3D):
     # Face definitions:
         face0: 0-3-2-1 (nodes 0,3,2,1,11,10,9,8) (Bottom face, r=-1)
         face1: 4-5-6-7 (nodes 4,5,6,7,12,13,14,15) (Top face, r=1)
-        face2: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11) (Left face, g=-1)
+        face2: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16) (Front face, h=-1)
         face3: 1-2-6-5 (nodes 1,2,6,5,9,18,13,17) (Right face, g=1)
-        face4: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16) (Front face, h=-1)
-        face5: 3-7-6-2 (nodes 3,7,6,2,19,14,18,10) (Back face, h=1)    # Shape functions:
+        face4: 2-3-7-6 (nodes 2,3,7,6,10,19,14,18) (Back face, h=-1)
+        face5: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11) (Left face, g=1)   
+         
+    # Shape functions:
         Quadratic serendipity shape functions for brick element
         N_i = combination of 1, g, h, r, g^2, h^2, r^2, gh, hr, rg, ghr
         Corner nodes use the product of quadratic terms
@@ -732,23 +737,34 @@ class C3D20(Element_3D):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
         
         if index_now.shape[0] == 0:
-            return torch.empty([0, 8], dtype=torch.long, device=self._elems.device)
-        
-        if surface_ind == 0:  # Bottom face (r=-1): 0,3,2,1 + mid nodes 11,10,9,8
-            return self._elems[index_now][:, [0, 3, 2, 1, 11, 10, 9, 8]]
-        elif surface_ind == 1:  # Top face (r=1): 4,5,6,7 + mid nodes 12,13,14,15
-            return self._elems[index_now][:, [4, 5, 6, 7, 12, 13, 14, 15]]
-        elif surface_ind == 2:  # Left face (g=-1): 0,4,7,3 + mid nodes 16,15,19,11
-            return self._elems[index_now][:, [0, 4, 7, 3, 16, 15, 19, 11]]
-        elif surface_ind == 3:  # Right face (g=1): 1,2,6,5 + mid nodes 9,18,13,17
-            return self._elems[index_now][:, [1, 2, 6, 5, 9, 18, 13, 17]]
-        elif surface_ind == 4:  # Front face (h=-1): 0,1,5,4 + mid nodes 8,17,12,16
-            return self._elems[index_now][:, [0, 1, 5, 4, 8, 17, 12, 16]]
-        elif surface_ind == 5:  # Back face (h=1): 3,7,6,2 + mid nodes 19,14,18,10
-            return self._elems[index_now][:, [3, 7, 6, 2, 19, 14, 18, 10]]
+            quad_elems = torch.empty([0, 8], dtype=torch.long, device=self._elems.device)
+            return initialize_surfaces(quad_elems)
+
+        # Return appropriate face nodes according to face definitions in comments
+        if surface_ind == 0:
+            # Bottom face: 0-3-2-1 (nodes 0,3,2,1,11,10,9,8)
+            quad_elems = self._elems[index_now][:, [0, 3, 2, 1, 11, 10, 9, 8]]
+        elif surface_ind == 1:
+            # Top face: 4-5-6-7 (nodes 4,5,6,7,12,13,14,15)
+            quad_elems = self._elems[index_now][:, [4, 5, 6, 7, 12, 13, 14, 15]]
+        elif surface_ind == 2:
+            # Front face: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16)
+            quad_elems = self._elems[index_now][:, [0, 1, 5, 4, 8, 17, 12, 16]]
+        elif surface_ind == 3:
+            # Right face: 1-2-6-5 (nodes 1,2,6,5,9,18,13,17)
+            quad_elems = self._elems[index_now][:, [1, 2, 6, 5, 9, 18, 13, 17]]
+        elif surface_ind == 4:
+            # Back face: 2-3-7-6 (nodes 2,3,7,6,10,19,14,18)
+            quad_elems = self._elems[index_now][:, [2, 3, 7, 6, 10, 19, 14, 18]]
+        elif surface_ind == 5:
+            # Left face: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11)
+            quad_elems = self._elems[index_now][:, [0, 4, 7, 3, 16, 15, 19, 11]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
-    
+        
+        return initialize_surfaces(quad_elems)
+
+
     def get_2nd_order_point_index(self):
         """
         Get mid-edge node indices with their corner node neighbors
