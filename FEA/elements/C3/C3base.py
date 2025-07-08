@@ -1,6 +1,7 @@
 
 
 
+import re
 import pandas as pd
 import torch
 import numpy as np
@@ -77,18 +78,13 @@ class Element_3D(BaseElement):
                 
         """
                 
-        self.order: int = 1
+        self.surf_order: torch.Tensor = torch.Tensor([2, 2, 2, 2, 2, 2])
         """
-            whether to reduce the order of the element
-            if True, the element will be reduced to 4 nodes
-            if False, the element will remain 10 nodes
-        """
+            whether to reduce the order of the element, for the first order element, this parameter is not used,\n
+            size: [surface]
 
-        self.order_faces: torch.Tensor 
-        """            
-        the order of the faces of the element
-            shape: [surface, element]
-            0: linear, 1: quadratic
+            1: reduce the order of the element on the surface,\n
+            2: remain the order of the element on the surface,\n
         """
 
         self._num_gaussian: int
@@ -96,6 +92,11 @@ class Element_3D(BaseElement):
             the number of guassian points
         """
     
+        self.num_surfaces: int
+        """
+            the number of surfaces of the element
+        """
+
     def initialize(self, fea) -> None:
 
         super().initialize(fea)
@@ -157,6 +158,19 @@ class Element_3D(BaseElement):
             nodes: [p, 3], the global coordinates of the element
         """
 
+        # if the order of the element is 1, the shape function is to be modified
+        self.shape_function[0] = self.reduce_order_shape_function(self.shape_function[0])
+
+        # get the derivative of the shape function
+        self.shape_function.append(
+            torch.stack([
+                self._shape_function_derivative(self.shape_function[0], 0),
+                self._shape_function_derivative(self.shape_function[0], 1),
+                self._shape_function_derivative(self.shape_function[0], 2),
+            ],
+                        dim=0))
+
+        # get the coordinates of the guassian points
         pp = torch.zeros([self._num_gaussian, self.shape_function[0].shape[1]])
         pp[:, 0] = 1
         pp[:, 1] = gauss_coordinates[:, 0]
@@ -184,6 +198,7 @@ class Element_3D(BaseElement):
             pp[:, 18] = gauss_coordinates[:, 1]**3
             pp[:, 19] = gauss_coordinates[:, 2]**3
 
+        # calculate the Jacobian at the guassian points
         Jacobian = torch.zeros([self._num_gaussian, len(self._elems), 3, 3])
         shape_now = self.shape_function[1]
         for i in range(self.num_nodes_per_elem):
@@ -415,27 +430,121 @@ class Element_3D(BaseElement):
         Modify the RGC_remain_index
         """
         RGC_remain_index[0][self._elems.unique()] = True
+
+        mid_nodes_index = self.get_2nd_order_point_index()
+        if mid_nodes_index.shape[0] > 0:
+            # set the mid nodes to be not required DoFs
+            RGC_remain_index[0][mid_nodes_index[:, 0]] = False
+        
         return RGC_remain_index
     
-
-
     # region second order methods
 
     def get_2nd_order_point_index(self):
         """
+        The absolute point index of the element that lies in the middle of the element
+
         get the 2-nd order point index of the element that lies in the middle of the element
+        only for the first order faces of the second order element
         
         Returns:
             torch.Tensor: the 2-nd order point index of the element \n
+                size: [point_index, 3]\n
                 [0]: the index of the middle node of the element\n
                 [1]: the index of the neighbor node of the middle node of the element\n
                 [2]: the index of the other neighbor node of the middle node of the element\n
         """
+        mid_points_index = self.get_2nd_order_point_index_surface_all()
+        absolute_index = torch.stack([self._elems[:, mid_points_index[:, 0]],
+                                      self._elems[:, mid_points_index[:, 1]],
+                                      self._elems[:, mid_points_index[:, 2]]],
+                                     dim=-1).reshape([-1, 3])
+        absolute_index = absolute_index.unique(dim=0)
+        return absolute_index
+    
+    def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
+        """
+        The relative point index of the element that lies in the middle of the element
+
+        get the 2-nd order point index of the element that lies in the middle of the element
+        only for the first order faces of the second order element
+        
+        Args:
+            surface_ind: the index of the surface, 0 for the first surface, 1 for the second surface, etc.
+        
+        Returns:
+            torch.Tensor: the 2-nd order point index of the element \n
+                size: [point_index, 3]\n
+                    [0]: the index of the middle node of the element\n
+                    [1]: the index of the neighbor node of the middle node of the element\n
+                    [2]: the index of the other neighbor node of the middle node of the element\n
+        """
         return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
+
+    def get_2nd_order_point_index_surface_all(self) -> torch.Tensor:
+        """
+        The relative point index of the element that lies in the middle of the element
+
+        get the 2-nd order point index of the element that lies in the middle of the element
+        only for the first order faces of the second order element
+        
+        Returns:
+            torch.Tensor: the 2-nd order point index of the element \n
+                size: [point_index, 3]\n
+                    [0]: the index of the middle node of the element\n
+                    [1]: the index of the neighbor node of the middle node of the element\n
+                    [2]: the index of the other neighbor node of the middle node of the element\n
+        """
+
+        mid_nodes_index = []
+        for i in range(self.num_surfaces):
+            if self.surf_order[i] == 1:
+                # reduce the order of the shape function
+                mid_nodes_index.append(
+                    self.get_2nd_order_point_index_surface(i).cpu())
+        if len(mid_nodes_index) == 0:
+            # if there is no mid node, return an empty tensor
+            return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
+        mid_nodes_index = torch.cat(mid_nodes_index, dim=0)
+
+        # unique the mid_nodes_index
+        mid_nodes_index = torch.unique(mid_nodes_index, dim=0)
+
+        return mid_nodes_index
+
+    def reduce_order_shape_function(self, shape_function: torch.Tensor) -> torch.Tensor:
+        """
+        Reduce the order of the shape function by averaging the values of the neighboring nodes.
+
+        Args:
+            shape_function: [a, b], the shape function of the element
+        Returns:
+            torch.Tensor: [a, b], the reduced order shape function of the element
+        """
+
+        # get the mid node index
+        mid_nodes_index = self.get_2nd_order_point_index_surface_all()
+
+        if mid_nodes_index.shape[0] == 0:
+            # if there is no mid node, return the original shape function
+            return shape_function
+
+        # reduce the order of the shape function
+        shape_function_reduced = shape_function.clone()
+        for i in range(mid_nodes_index.shape[0]):
+            mid_node = mid_nodes_index[i, 0]
+            neighbor1 = mid_nodes_index[i, 1]
+            neighbor2 = mid_nodes_index[i, 2]
+
+            shape_function_reduced[mid_node] = 0.
+            shape_function_reduced[neighbor1] += shape_function[mid_node] / 2
+            shape_function_reduced[neighbor2] += shape_function[mid_node] / 2
+
+        return shape_function_reduced
 
     def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
         """
-        Refine Reference Grid Coordinates for mid-edge nodes
+        Refine the first order surface's nodes, to make them the middle nodes of the neighboring nodes.
         
         Args:
             RGC: List of Reference Grid Coordinates
@@ -449,8 +558,4 @@ class Element_3D(BaseElement):
         
         return RGC
     
-    def set_order(self, order: int) -> None:
-        self.order = order
-    
-
     # endregion second order methods

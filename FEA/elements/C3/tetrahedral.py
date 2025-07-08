@@ -33,16 +33,11 @@ class C3D4(Element_3D):
         self.shape_function = [
             torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
                           [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
-            torch.tensor([[[-1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                           [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-                          [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
-                           [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-                          [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
-                           [0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]])
         ]
 
         self.num_nodes_per_elem = 4
         self._num_gaussian = 1
+        self.num_surfaces = 4
         self.gaussian_weight = torch.tensor([1 / 6])
 
         p0 = torch.tensor([[0.25, 0.25, 0.25]])
@@ -95,149 +90,91 @@ class C3D10(Element_3D):
 
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-        self.order = 2
+
         
     def initialize(self, fea):
-        
-        if self.order == 1:
-            
-            self.shape_function = [
-                torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
-                torch.tensor([[[-1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0],
-                            [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-                            [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
-                            [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-                            [[-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
-                            [0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]])
-            ]
 
-            self.num_nodes_per_elem = 4
-            self._num_gaussian = 1
-            self.gaussian_weight = torch.tensor([1 / 6])
+        self.shape_function = [
+            torch.tensor([[1., -3., -3., -3., 4., 4., 4., 2., 2., 2.],
+                        [0., -1., 0., 0., 0., 0., 0., 2., 0., 0.],
+                        [0., 0., -1., 0., 0., 0., 0., 0., 2., 0.],
+                        [0., 0., 0., -1., 0., 0., 0., 0., 0., 2.],
+                        [0., 4., 0., 0., -4., 0., -4., -4., 0., 0.],
+                        [0., 0., 0., 0., 4., 0., 0., 0., 0., 0.],
+                        [0., 0., 4., 0., -4., -4., 0., 0., -4., 0.],
+                        [0., 0., 0., 4., 0., -4., -4., 0., 0., -4.],
+                        [0., 0., 0., 0., 0., 0., 4., 0., 0., 0.],
+                        [0., 0., 0., 0., 0., 4., 0., 0., 0., 0.]]),  
+        ]
 
-            p0 = torch.tensor([[0.25, 0.25, 0.25]])
+        self.gaussian_weight = torch.tensor([1 / 24, 1 / 24, 1 / 24, 1 / 24])
 
-        elif self.order == 2:
-            self.shape_function = [
-                torch.tensor([[1., -3., -3., -3., 4., 4., 4., 2., 2., 2.],
-                            [0., -1., 0., 0., 0., 0., 0., 2., 0., 0.],
-                            [0., 0., -1., 0., 0., 0., 0., 0., 2., 0.],
-                            [0., 0., 0., -1., 0., 0., 0., 0., 0., 2.],
-                            [0., 4., 0., 0., -4., 0., -4., -4., 0., 0.],
-                            [0., 0., 0., 0., 4., 0., 0., 0., 0., 0.],
-                            [0., 0., 4., 0., -4., -4., 0., 0., -4., 0.],
-                            [0., 0., 0., 4., 0., -4., -4., 0., 0., -4.],
-                            [0., 0., 0., 0., 0., 0., 4., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 4., 0., 0., 0., 0.]]),
-                torch.tensor([[[-3., 4., 4., 4., 0., 0., 0., 0., 0., 0.],
-                            [-1., 4., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [4., -8., -4., -4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 4., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., -4., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., -4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]],
-                            [[-3., 4., 4., 4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [-1., 0., 4., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., -4., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 4., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [4., -4., -8., -4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., -4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 4., 0., 0., 0., 0., 0., 0.]],
-                            [[-3., 4., 4., 4., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [-1., 0., 0., 4., 0., 0., 0., 0., 0., 0.],
-                            [0., -4., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., -4., 0., 0., 0., 0., 0., 0., 0.],
-                            [4., -4., -4., -8., 0., 0., 0., 0., 0., 0.],
-                            [0., 4., 0., 0., 0., 0., 0., 0., 0., 0.],
-                            [0., 0., 4., 0., 0., 0., 0., 0., 0., 0.]]])
-            ]
+        self.num_nodes_per_elem = 10
+        self._num_gaussian = 4
+        self.num_surfaces = 4
+        alpha = 0.58541020
+        beta = 0.13819660
 
-            self.gaussian_weight = torch.tensor([1 / 24, 1 / 24, 1 / 24, 1 / 24])
-
-            self.num_nodes_per_elem = 10
-            self._num_gaussian = 4
-            alpha = 0.58541020
-            beta = 0.13819660
-
-            p0 = torch.tensor([[beta, beta, beta], [alpha, beta, beta],
-                            [beta, alpha, beta], [beta, beta, alpha]])
+        p0 = torch.tensor([[beta, beta, beta], [alpha, beta, beta],
+                        [beta, alpha, beta], [beta, beta, alpha]])
             
             
         self._pre_load_gaussian(p0, nodes=fea.nodes)
         super().initialize(fea)
- 
-    def set_required_DoFs(
-            self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
-        """
-        Modify the RGC_remain_index
-        """
-        RGC_remain_index[0][self._elems[:, :4].unique()] = True
-        if self.order > 1:
-            RGC_remain_index[0][self._elems[:, 4:].unique()] = True
-        return RGC_remain_index
 
-    def get_2nd_order_point_index(self):
-        mid_index = torch.cat([self._elems[:, 4], self._elems[:, 5],
-                      self._elems[:, 6], self._elems[:, 7],
-                      self._elems[:, 8], self._elems[:, 9]])
-        neighbor1_index = torch.cat([self._elems[:, 0], self._elems[:, 1], self._elems[:, 0], 
-                           self._elems[:, 0], self._elems[:, 1], self._elems[:, 2]])
-        neighbor2_index = torch.cat([self._elems[:, 1], self._elems[:, 2], self._elems[:, 2],
-                            self._elems[:, 3], self._elems[:, 3], self._elems[:, 3]])
-        
-        arg_index = torch.argsort(mid_index)
-        
-        
-        result = torch.stack([mid_index, neighbor1_index, neighbor2_index], dim=1)
-        result = result[arg_index]
-        index_remain = torch.zeros([result.shape[0]], dtype=torch.bool, device='cpu')
-        index_remain[0] = True
-        index_remain[1:][result[1:, 0] > result[:-1, 0]] = True
-        result = result[index_remain]
-
-        return result
-      
     def find_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
         
         if index_now.shape[0] == 0:
             tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
         
-        if self.order == 2:
 
-            if surface_ind == 0:
-                tri_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
-            elif surface_ind == 1:
-                tri_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
-            elif surface_ind == 2:
-                tri_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
-            elif surface_ind == 3:
-                tri_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
-            else:
-                raise ValueError(f"Invalid surface index: {surface_ind}")
-
-            return initialize_surfaces(tri_elems)
-
-        elif self.order == 1:
-            if surface_ind == 0:
+        if surface_ind == 0:
+            if self.surf_order[surface_ind] == 1:
                 tri_elems = self._elems[index_now][:, [0, 2, 1]]
-            elif surface_ind == 1:
+            else:
+                tri_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
+        elif surface_ind == 1:
+            if self.surf_order[surface_ind] == 1:
                 tri_elems = self._elems[index_now][:, [0, 1, 3]]
-            elif surface_ind == 2:
+            else:
+                tri_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
+        elif surface_ind == 2:
+            if self.surf_order[surface_ind] == 1:
                 tri_elems = self._elems[index_now][:, [1, 2, 3]]
-            elif surface_ind == 3:
+            else:
+                tri_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
+        elif surface_ind == 3:
+            if self.surf_order[surface_ind] == 1:
                 tri_elems = self._elems[index_now][:, [0, 3, 2]]
             else:
-                raise ValueError(f"Invalid surface index: {surface_ind}")
-            return initialize_surfaces(tri_elems)
-            
+                tri_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
+        else:
+            raise ValueError(f"Invalid surface index: {surface_ind}")
+
+        return initialize_surfaces(tri_elems)
+
+    def get_2nd_order_point_index_surface(self, surface_ind: int):
+        """
+        Get the 2nd order point index for the specified surface.
+        This is used to identify the mid-edge nodes for the surface elements.
+        """
+        if surface_ind == 0:
+            return torch.tensor([[6, 0, 2],
+                                    [5, 1, 2],
+                                    [4, 0, 1]], dtype=torch.long)
+        elif surface_ind == 1:
+            return torch.tensor([[4, 0, 1],
+                    [8, 1, 3],
+                    [7, 0, 3]], dtype=torch.long)
+        elif surface_ind == 2:
+            return torch.tensor([[5, 1, 2],
+                    [9, 2, 3],
+                    [8, 1, 3]], dtype=torch.long)
+        elif surface_ind == 3:
+            return torch.tensor([[7, 0, 3],
+                    [9, 2, 3],
+                    [6, 0, 2]], dtype=torch.long)
+
+        else:
+            raise ValueError(f"Invalid surface index: {surface_ind}")

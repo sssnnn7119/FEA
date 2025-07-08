@@ -41,7 +41,6 @@ class C3D8(Element_3D):
                  elems: torch.Tensor = None,
                  elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-        self.order = 1
 
     def initialize(self, fea):
         # Shape function coefficients
@@ -133,21 +132,15 @@ class C3D8(Element_3D):
         # Scale by 1/8 for proper normalization of trilinear shape functions
         shape_funcs = shape_funcs * 0.125
 
-        # Derivatives of shape functions with respect to g, h, r
-        # The derivatives are constant for linear shape functions
-        derivatives = torch.zeros((3, 8, 20))
-
-        # dN/dg derivatives
-        for i in range(3):
-            derivatives[i] = self._shape_function_derivative(shape_funcs, i)
-
         # Store shape functions and derivatives
-        self.shape_function = [shape_funcs, derivatives]
+        self.shape_function = [shape_funcs]
 
         self.num_nodes_per_elem = 8
 
         # Full integration - 2x2x2 = 8 Gaussian points
         self._num_gaussian = 8
+
+        self.num_surfaces = 6
 
         # Standard weight for Gaussian quadrature (1 for each point)
         self.gaussian_weight = torch.ones(8)
@@ -338,16 +331,8 @@ class C3D8R(C3D8):
         # Scale by 1/8 for proper normalization of trilinear shape functions
         shape_funcs = shape_funcs * 0.125
 
-        # Derivatives of shape functions with respect to g, h, r
-        # The derivatives are constant for linear shape functions
-        derivatives = torch.zeros((3, 8, 20))
-
-        # dN/dg derivatives
-        for i in range(3):
-            derivatives[i] = self._shape_function_derivative(shape_funcs, i)
-
         # Store shape functions and derivatives
-        self.shape_function = [shape_funcs, derivatives]
+        self.shape_function = [shape_funcs]
 
         self.num_nodes_per_elem = 8
         self._num_gaussian = 1  # Reduced integration - single point at element center
@@ -637,8 +622,7 @@ class C3D20(Element_3D):
     
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-        self.order = 2
-    
+
     def initialize(self, fea):
         # Shape function coefficients for 20-node brick element with coordinates (g,h,r)
         # According to the provided function ordering in C3base.py:
@@ -648,8 +632,7 @@ class C3D20(Element_3D):
         # 18: g*h^2*r, 19: g*h*r^2
           # Initialize shape functions for all nodes using standard C3D20 formulas
         shape_funcs = torch.zeros((20, 20))  # 20 nodes, 20 coefficients (max)
-        derivatives = torch.zeros((3, 20, 20))  # 3 derivatives (g,h,r), 20 nodes
-        
+
         # Standard C3D20 shape functions in matrix form
         # Based on the formulas provided:
         # Corner nodes: N_i = -(1/8)(1±g)(1±h)(1±r)(2±g±h±r)
@@ -683,18 +666,16 @@ class C3D20(Element_3D):
             [  0.2500,   0.2500,   0.2500,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,  -0.2500,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 19
             [  0.2500,  -0.2500,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,  -0.2500,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000]  # 节点 20
         ])
-        
-        # evaluate derivatives for each shape function
-        for i in range(3):
-            derivatives[i] = self._shape_function_derivative(shape_funcs, i)
-        
+
         # Store shape function coefficients
-        self.shape_function = [shape_funcs, derivatives]
+        self.shape_function = [shape_funcs]
         self.num_nodes_per_elem = 20
         
         # Gaussian integration points
         # Using 3x3x3 Gauss quadrature for full integration
         self._num_gaussian = 27  # 3x3x3 points
+
+        self.num_surfaces = 6
         
         # Gaussian weights (3x3x3)
         weight_1d = torch.tensor([5.0/9.0, 8.0/9.0, 5.0/9.0])
@@ -743,108 +724,95 @@ class C3D20(Element_3D):
         # Return appropriate face nodes according to face definitions in comments
         if surface_ind == 0:
             # Bottom face: 0-3-2-1 (nodes 0,3,2,1,11,10,9,8)
-            quad_elems = self._elems[index_now][:, [0, 3, 2, 1, 11, 10, 9, 8]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [0, 3, 2, 1]]
+            else:
+                quad_elems = self._elems[index_now][:, [0, 3, 2, 1, 11, 10, 9, 8]]
         elif surface_ind == 1:
             # Top face: 4-5-6-7 (nodes 4,5,6,7,12,13,14,15)
-            quad_elems = self._elems[index_now][:, [4, 5, 6, 7, 12, 13, 14, 15]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [4, 5, 6, 7]]
+            else:
+                quad_elems = self._elems[index_now][:, [4, 5, 6, 7, 12, 13, 14, 15]]
         elif surface_ind == 2:
             # Front face: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16)
-            quad_elems = self._elems[index_now][:, [0, 1, 5, 4, 8, 17, 12, 16]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [0, 1, 5, 4]]
+            else:
+                quad_elems = self._elems[index_now][:, [0, 1, 5, 4, 8, 17, 12, 16]]
         elif surface_ind == 3:
             # Right face: 1-2-6-5 (nodes 1,2,6,5,9,18,13,17)
-            quad_elems = self._elems[index_now][:, [1, 2, 6, 5, 9, 18, 13, 17]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [1, 2, 6, 5]]
+            else:
+                quad_elems = self._elems[index_now][:, [1, 2, 6, 5, 9, 18, 13, 17]]
         elif surface_ind == 4:
             # Back face: 2-3-7-6 (nodes 2,3,7,6,10,19,14,18)
-            quad_elems = self._elems[index_now][:, [2, 3, 7, 6, 10, 19, 14, 18]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [2, 3, 7, 6]]
+            else:
+                quad_elems = self._elems[index_now][:, [2, 3, 7, 6, 10, 19, 14, 18]]
         elif surface_ind == 5:
             # Left face: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11)
-            quad_elems = self._elems[index_now][:, [0, 4, 7, 3, 16, 15, 19, 11]]
+            if self.surf_order[surface_ind] == 1:
+                quad_elems = self._elems[index_now][:, [0, 4, 7, 3]]
+            else:
+                quad_elems = self._elems[index_now][:, [0, 4, 7, 3, 16, 15, 19, 11]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
         
         return initialize_surfaces(quad_elems)
 
-
-    def get_2nd_order_point_index(self):
+    def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
         """
-        Get mid-edge node indices with their corner node neighbors
-        
-        Returns:
-            Tensor with [mid_node_idx, corner_node1_idx, corner_node2_idx]
-        """
-        # 12 edges for hex element: (0,1), (1,2), (2,3), (3,0), (4,5), (5,6), 
-        # (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)
-        mid_index = torch.cat([
-            self._elems[:, 8],  # Edge (0,1)
-            self._elems[:, 9],  # Edge (1,2)
-            self._elems[:, 10], # Edge (2,3)
-            self._elems[:, 11], # Edge (3,0)
-            self._elems[:, 12], # Edge (4,5)
-            self._elems[:, 13], # Edge (5,6)
-            self._elems[:, 14], # Edge (6,7)
-            self._elems[:, 15], # Edge (7,4)
-            self._elems[:, 16], # Edge (0,4)
-            self._elems[:, 17], # Edge (1,5)
-            self._elems[:, 18], # Edge (2,6)
-            self._elems[:, 19]  # Edge (3,7)
-        ])
-        
-        neighbor1_index = torch.cat([
-            self._elems[:, 0],  # Node 0 (with 8)
-            self._elems[:, 1],  # Node 1 (with 9)
-            self._elems[:, 2],  # Node 2 (with 10)
-            self._elems[:, 3],  # Node 3 (with 11)
-            self._elems[:, 4],  # Node 4 (with 12)
-            self._elems[:, 5],  # Node 5 (with 13)
-            self._elems[:, 6],  # Node 6 (with 14)
-            self._elems[:, 7],  # Node 7 (with 15)
-            self._elems[:, 0],  # Node 0 (with 16)
-            self._elems[:, 1],  # Node 1 (with 17)
-            self._elems[:, 2],  # Node 2 (with 18)
-            self._elems[:, 3]   # Node 3 (with 19)
-        ])
-        
-        neighbor2_index = torch.cat([
-            self._elems[:, 1],  # Node 1 (with 8)
-            self._elems[:, 2],  # Node 2 (with 9)
-            self._elems[:, 3],  # Node 3 (with 10)
-            self._elems[:, 0],  # Node 0 (with 11)
-            self._elems[:, 5],  # Node 5 (with 12)
-            self._elems[:, 6],  # Node 6 (with 13)
-            self._elems[:, 7],  # Node 7 (with 14)
-            self._elems[:, 4],  # Node 4 (with 15)
-            self._elems[:, 4],  # Node 4 (with 16)
-            self._elems[:, 5],  # Node 5 (with 17)
-            self._elems[:, 6],  # Node 6 (with 18)
-            self._elems[:, 7]   # Node 7 (with 19)
-        ])
-        
-        # Sort and get unique nodes
-        arg_index = torch.argsort(mid_index)
-        result = torch.stack([mid_index, neighbor1_index, neighbor2_index], dim=1)
-        result = result[arg_index]
-        index_remain = torch.zeros([result.shape[0]], dtype=torch.bool, device='cpu')
-        index_remain[0] = True
-        index_remain[1:][result[1:, 0] > result[:-1, 0]] = True
-        result = result[index_remain]
-        
-        return result
-    
-    def set_required_DoFs(self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
-        """
-        Set required degrees of freedom
+        Get the 2nd order point index for the specified surface.
+        This is used to identify the mid-edge nodes for the surface elements.
         
         Args:
-            RGC_remain_index: List of indices to keep
+            surface_ind: Surface index (0-5)
             
         Returns:
-            Updated RGC_remain_index
+            torch.Tensor: Mid-edge node indices and their neighboring corner nodes
+                size: [point_index, 3]
+                [0]: the index of the middle node of the element
+                [1]: the index of the neighbor node of the middle node of the element
+                [2]: the index of the other neighbor node of the middle node of the element
         """
-        # Always keep corner nodes
-        RGC_remain_index[0][self._elems[:, :8].unique()] = True
-        
-        # Keep mid-nodes for quadratic elements
-        if self.order > 1:
-            RGC_remain_index[0][self._elems[:, 8:].unique()] = True
-            
-        return RGC_remain_index
+        if surface_ind == 0:
+            # Bottom face: 0-3-2-1 with mid-edges 11,10,9,8
+            return torch.tensor([[11, 0, 3],  # mid-edge between 0-3
+                                [10, 2, 3],  # mid-edge between 3-2
+                                [9, 1, 2],   # mid-edge between 2-1
+                                [8, 0, 1]], dtype=torch.long)  # mid-edge between 1-0
+        elif surface_ind == 1:
+            # Top face: 4-5-6-7 with mid-edges 12,13,14,15
+            return torch.tensor([[12, 4, 5],  # mid-edge between 4-5
+                                [13, 5, 6],  # mid-edge between 5-6
+                                [14, 6, 7],  # mid-edge between 6-7
+                                [15, 4, 7]], dtype=torch.long)  # mid-edge between 7-4
+        elif surface_ind == 2:
+            # Front face: 0-1-5-4 with mid-edges 8,17,12,16
+            return torch.tensor([[8, 0, 1],   # mid-edge between 0-1
+                                [17, 1, 5],  # mid-edge between 1-5
+                                [12, 4, 5],  # mid-edge between 5-4
+                                [16, 0, 4]], dtype=torch.long)  # mid-edge between 4-0
+        elif surface_ind == 3:
+            # Right face: 1-2-6-5 with mid-edges 9,18,13,17
+            return torch.tensor([[9, 1, 2],   # mid-edge between 1-2
+                                [18, 2, 6],  # mid-edge between 2-6
+                                [13, 5, 6],  # mid-edge between 6-5
+                                [17, 1, 5]], dtype=torch.long)  # mid-edge between 5-1
+        elif surface_ind == 4:
+            # Back face: 2-3-7-6 with mid-edges 10,19,14,18
+            return torch.tensor([[10, 2, 3],  # mid-edge between 2-3
+                                [19, 3, 7],  # mid-edge between 3-7
+                                [14, 6, 7],  # mid-edge between 7-6
+                                [18, 2, 6]], dtype=torch.long)  # mid-edge between 6-2
+        elif surface_ind == 5:
+            # Left face: 0-4-7-3 with mid-edges 16,15,19,11
+            return torch.tensor([[16, 0, 4],  # mid-edge between 0-4
+                                [15, 4, 7],  # mid-edge between 4-7
+                                [19, 3, 7],  # mid-edge between 7-3
+                                [11, 0, 3]], dtype=torch.long)  # mid-edge between 3-0
+        else:
+            raise ValueError(f"Invalid surface index: {surface_ind}")

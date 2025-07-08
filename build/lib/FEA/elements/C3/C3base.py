@@ -77,18 +77,13 @@ class Element_3D(BaseElement):
                 
         """
                 
-        self.order: int = 1
+        self.surf_order: torch.Tensor
         """
-            whether to reduce the order of the element
-            if True, the element will be reduced to 4 nodes
-            if False, the element will remain 10 nodes
-        """
+            whether to reduce the order of the element, for the first order element, this parameter is not used,\n
+            size: [surface, element]
 
-        self.order_faces: torch.Tensor 
-        """            
-        the order of the faces of the element
-            shape: [surface, element]
-            0: linear, 1: quadratic
+            1: reduce the order of the element on the surface,\n
+            2: remain the order of the element on the surface,\n
         """
 
         self._num_gaussian: int
@@ -417,13 +412,12 @@ class Element_3D(BaseElement):
         RGC_remain_index[0][self._elems.unique()] = True
         return RGC_remain_index
     
-
-
     # region second order methods
 
     def get_2nd_order_point_index(self):
         """
         get the 2-nd order point index of the element that lies in the middle of the element
+        only for the first order faces of the second order element
         
         Returns:
             torch.Tensor: the 2-nd order point index of the element \n
@@ -435,7 +429,7 @@ class Element_3D(BaseElement):
 
     def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
         """
-        Refine Reference Grid Coordinates for mid-edge nodes
+        Refine the first order surface's nodes, to make them the middle nodes of the neighboring nodes.
         
         Args:
             RGC: List of Reference Grid Coordinates
@@ -449,8 +443,4 @@ class Element_3D(BaseElement):
         
         return RGC
     
-    def set_order(self, order: int) -> None:
-        self.order = order
-   
-
     # endregion second order methods

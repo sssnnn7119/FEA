@@ -597,11 +597,7 @@ class C3D15Transition12(Element_3D):
         result = result[index_remain]
 
         return result
-
-
-    def find_surface(self, surface_ind: int, elems_ind: torch.Tensor):
-        index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
-        
+  
     def find_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
         

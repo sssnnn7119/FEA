@@ -9,7 +9,7 @@ import FEA
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-torch.set_default_device(torch.device('cpu'))
+torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
 def fea_inp(inp_name: str):
@@ -26,7 +26,7 @@ def fea_inp(inp_name: str):
 
     fe = FEA.from_inp(fem)
 
-
+    fe.elems['element-0'].surf_order[:] = 1.
 
     bc_dof = np.where((abs(fe.nodes[:, 2] - 0)
                             < 0.1).cpu().numpy())[0] * 3
@@ -46,7 +46,7 @@ def fea_inp(inp_name: str):
     t1 = time.time()
     fe.initialize()
 
-    fe.solve(tol_error=0.0001)
+    fe.solve(tol_error=0.000001)
 
     # mid_nodes_index = fe.elems['element-0'].get_2nd_order_point_index()
     # elems = fe.elems['element-0']
@@ -68,7 +68,7 @@ def fea_inp(inp_name: str):
     return fe.GC[-6:].tolist()
 
 
-element_list = ['C3D15', 'C3D6', 'C3D8', 'C3D10', 'C3D15', 'C3D20']
+element_list = ['C3D10', 'C3D15', 'C3D20', 'C3D4', 'C3D6', 'C3D8', ]
 
 results = {}
 for element in element_list:
