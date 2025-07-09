@@ -9,7 +9,7 @@ import FEA
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-torch.set_default_device(torch.device('cuda'))
+torch.set_default_device(torch.device('cpu'))
 torch.set_default_dtype(torch.float64)
 
 def fea_inp(inp_name: str):

@@ -23,10 +23,7 @@ class C3D4(Element_3D):
 
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-
-        self.order = 1
-        
-    
+        self.num_surfaces = 4
 
     def initialize(self, fea):
         
@@ -37,7 +34,7 @@ class C3D4(Element_3D):
 
         self.num_nodes_per_elem = 4
         self._num_gaussian = 1
-        self.num_surfaces = 4
+        
         self.gaussian_weight = torch.tensor([1 / 6])
 
         p0 = torch.tensor([[0.25, 0.25, 0.25]])
@@ -90,7 +87,7 @@ class C3D10(Element_3D):
 
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-
+        self.num_surfaces = 4
         
     def initialize(self, fea):
 
@@ -111,7 +108,7 @@ class C3D10(Element_3D):
 
         self.num_nodes_per_elem = 10
         self._num_gaussian = 4
-        self.num_surfaces = 4
+        
         alpha = 0.58541020
         beta = 0.13819660
 

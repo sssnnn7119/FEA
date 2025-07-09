@@ -41,6 +41,7 @@ class C3D8(Element_3D):
                  elems: torch.Tensor = None,
                  elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
+        self.num_surfaces = 6
 
     def initialize(self, fea):
         # Shape function coefficients
@@ -139,8 +140,6 @@ class C3D8(Element_3D):
 
         # Full integration - 2x2x2 = 8 Gaussian points
         self._num_gaussian = 8
-
-        self.num_surfaces = 6
 
         # Standard weight for Gaussian quadrature (1 for each point)
         self.gaussian_weight = torch.ones(8)
@@ -622,6 +621,7 @@ class C3D20(Element_3D):
     
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
+        self.num_surfaces = 6
 
     def initialize(self, fea):
         # Shape function coefficients for 20-node brick element with coordinates (g,h,r)
@@ -675,7 +675,6 @@ class C3D20(Element_3D):
         # Using 3x3x3 Gauss quadrature for full integration
         self._num_gaussian = 27  # 3x3x3 points
 
-        self.num_surfaces = 6
         
         # Gaussian weights (3x3x3)
         weight_1d = torch.tensor([5.0/9.0, 8.0/9.0, 5.0/9.0])

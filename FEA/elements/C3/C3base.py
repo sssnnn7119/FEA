@@ -2,6 +2,7 @@
 
 
 import re
+import time
 import pandas as pd
 import torch
 import numpy as np
@@ -101,23 +102,17 @@ class Element_3D(BaseElement):
 
         super().initialize(fea)
         # coo index of the stiffness matricx of structural stress
-        indices0 = []
-        for i in range(self.num_nodes_per_elem):
-            for l1 in range(3):
-                for j in range(self.num_nodes_per_elem):
-                    for l2 in range(3):
-                        # for k in range(num_elems):
-                        index1 = self._elems[:, i] * 3 + torch.ones(
-                            self._elems.shape[0],
-                            dtype=torch.int64,
-                            device='cpu') * l1
-                        index3 = self._elems[:, j] * 3 + torch.ones(
-                            self._elems.shape[0],
-                            dtype=torch.int64,
-                            device='cpu') * l2
-                        indices0.append(torch.stack([index1, index3], dim=0))
-        index0 = torch.cat(indices0, dim=1)
-        
+
+        index0_ = torch.stack([
+                self._elems.T.reshape([self.num_nodes_per_elem, 1, 1, 1, -1]).repeat([1, 3, self.num_nodes_per_elem, 3, 1]),
+                torch.arange(3, device='cpu').reshape([1, 3, 1, 1, 1]).repeat([self.num_nodes_per_elem, 1, self.num_nodes_per_elem, 3, self._elems.shape[0]]),
+                self._elems.T.reshape([1, 1, self.num_nodes_per_elem, 1, -1]).repeat([self.num_nodes_per_elem, 3, 1, 3, 1]),
+                torch.arange(3, device='cpu').reshape([1, 1, 1, 3, 1]).repeat([self.num_nodes_per_elem, 3, self.num_nodes_per_elem, 1, self._elems.shape[0]])
+            ], dim=0).reshape([4, -1])
+        index0 = torch.zeros([2, index0_.shape[1]], dtype=torch.int64, device='cpu')
+        index0[0] = index0_[0] * 3 + index0_[1]
+        index0[1] = index0_[2] * 3 + index0_[3]
+
         # some trick to get the unique index and accelerate the calculation
         scaler = index0.max() + 1
         index1 = index0[0] * scaler + index0[1]
@@ -201,8 +196,9 @@ class Element_3D(BaseElement):
         # calculate the Jacobian at the guassian points
         Jacobian = torch.zeros([self._num_gaussian, len(self._elems), 3, 3])
         shape_now = self.shape_function[1]
+        temp_ = torch.einsum('gb, mab->gma', pp, shape_now)
         for i in range(self.num_nodes_per_elem):
-            Jacobian += torch.einsum('gb,mb,ei->geim', pp, shape_now[:, i],
+            Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
                                      nodes[self._elems[:, i]])
 
         # Jacobian_Function

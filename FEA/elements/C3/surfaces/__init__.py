@@ -4,7 +4,7 @@ from .triangle import T3, T6
 from .quadrilateral import Q4, Q8
 from .basesurface import BaseSurface
 
-def initialize_surfaces(surface_elems: torch.Tensor) -> None:
+def initialize_surfaces(surface_elems: torch.Tensor) -> BaseSurface:
     """
     Initialize surface elements based on their type.
     
@@ -12,7 +12,7 @@ def initialize_surfaces(surface_elems: torch.Tensor) -> None:
         surface_elems (torch.Tensor): Tensor containing surface element data.
         
     Returns:
-        list[BaseSurface]: List of initialized surface elements.
+        BaseSurface: initialized surface elements.
     """
     if not isinstance(surface_elems, torch.Tensor):
         raise TypeError("surface_elems must be a torch.Tensor.")

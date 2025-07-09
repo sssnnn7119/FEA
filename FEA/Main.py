@@ -259,6 +259,8 @@ class FEA_Main():
         result = self._solve_iteration(RGC=self.RGC,
                                          tol_error=tol_error)
         self.RGC = self._GC2RGC(self.GC)
+
+        self.refine_RGC()
         t1 = time.time()
 
         # print the information
@@ -536,8 +538,7 @@ class FEA_Main():
                                               tol_error=tol_error,
                                               dGC0=dGC).flatten()
 
-            if dGC.abs().max() < tol_error:
-                break
+
 
 
             # line search
@@ -556,7 +557,7 @@ class FEA_Main():
                 if low_alpha < 0:
                     low_alpha = 0
 
-            if low_alpha > 10:
+            if low_alpha > 50:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
                     break
@@ -600,7 +601,9 @@ class FEA_Main():
                     "{:^15.2f}".format(t3 - t2) + \
                     "{:^15.2f}".format(t4 - t3) + \
                     "{:^15.2f}".format(t4 - t1))
-
+            
+            if dGC.abs().max() < tol_error:
+                break
         self.GC = GC
         return True
 

@@ -29,7 +29,7 @@ class C3D6(Element_3D):
     
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-        self.order = 1
+        self.num_surfaces = 5
     
     def initialize(self, fea):
         
@@ -44,7 +44,6 @@ class C3D6(Element_3D):
                 [0.0, 0.0, 0.5, 0.0, 0.0, 0.5, 0.0]]),]
         self.num_nodes_per_elem = 6
         self._num_gaussian = 2
-        self.num_surfaces = 5
         self.gaussian_weight = torch.tensor([1 / 2, 1 / 2, ])
 
         # get the interpolation coordinates of the guass_points
@@ -136,7 +135,7 @@ class C3D15(Element_3D):
                  elems: torch.Tensor = None,
                  elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
-        self.order = 2
+        self.num_surfaces = 5
         # Shape function coefficients and derivatives
         # Format: [shape_function, derivatives]
         # These matrices represent the shape functions and their derivatives
@@ -236,7 +235,6 @@ class C3D15(Element_3D):
         # Gauss integration points setup
         self.num_nodes_per_elem = 15
         self._num_gaussian = 9
-        self.num_surfaces = 5
 
         # Load the Gaussian points for integration
         self._pre_load_gaussian(p0.reshape([-1, 3]), nodes=fea.nodes)

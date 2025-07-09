@@ -34,8 +34,6 @@ def from_inp(inp: FEA_INP) -> FEA_Main:
             )
 
             element_name = key
-            # if key == 'C3D15':
-            #     element_name = 'C3D15Transition12'
 
             elems_now = elements.initialize_element(
                         element_type=element_name,
