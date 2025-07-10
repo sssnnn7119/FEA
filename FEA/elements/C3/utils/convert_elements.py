@@ -1,8 +1,9 @@
 from __future__ import annotations
+from calendar import c
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..Main import FEA_Main
+    from ....Main import FEA_Main
 
 import torch
 import numpy as np
@@ -10,7 +11,7 @@ import FEA
 
 from FEA.reference_points import ReferencePoint
 
-from .C3 import C3D4, C3D6, C3D8, C3D10, C3D15, C3D20
+from .. import C3D4, C3D6, C3D8, C3D10, C3D15, C3D20
 
 
 def fast_edge_lookup(edge_dict: dict, edges_tensor: torch.Tensor):
@@ -235,8 +236,8 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
                         c3d10_batch[:, j + 4] = midpoint_indices
                 
                 # Store the elements and indices directly
-                c3d10_elements = c3d10_batch
-                c3d10_indices = c3d4_indices
+                c3d10_elements.append(c3d10_batch)
+                c3d10_indices.append(c3d4_indices)
                 
         elif isinstance(elem_obj, C3D6):
             # Convert C3D6 to C3D15 using vectorized operations
@@ -289,8 +290,8 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
                     c3d15_batch[:, j + 6] = midpoint_indices
                 
                 # Store the batch directly
-                c3d15_elements = c3d15_batch
-                c3d15_indices = c3d6_indices
+                c3d15_elements.append(c3d15_batch)
+                c3d15_indices.append(c3d6_indices)
 
         elif isinstance(elem_obj, C3D8):
             # Convert C3D8 to C3D20 using vectorized operations
@@ -342,39 +343,12 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
                     c3d20_batch[:, j + 8] = midpoint_indices
                 
                 # Store the batch directly
-                c3d20_elements = c3d20_batch
-                c3d20_indices = c3d8_indices
-      
-      # No need to convert element collections to tensors - they're already tensors from our vectorized operations
-    if c3d10_elements is not None and not isinstance(c3d10_elements, torch.Tensor):
-        # This should only happen if we're still using the old non-vectorized path for some elements
-        if isinstance(c3d10_elements, list) and len(c3d10_elements) > 0:
-            if isinstance(c3d10_elements[0], torch.Tensor):
-                c3d10_elements = torch.stack(c3d10_elements)
-            else:
-                c3d10_elements = torch.tensor(c3d10_elements, dtype=torch.int64, device=fe.nodes.device)
-    
-    if c3d15_elements is not None and not isinstance(c3d15_elements, torch.Tensor):
-        # This should only happen if we're still using the old non-vectorized path for some elements
-        if isinstance(c3d15_elements, list) and len(c3d15_elements) > 0:
-            if isinstance(c3d15_elements[0], torch.Tensor):
-                c3d15_elements = torch.stack(c3d15_elements)
-            else:
-                c3d15_elements = torch.tensor(c3d15_elements, dtype=torch.int64, device=fe.nodes.device)
-
-    # Process the C3D20 elements (similar to how C3D10 and C3D15 are handled)
-    if c3d20_elements is not None and not isinstance(c3d20_elements, torch.Tensor):
-        # This should only happen if we're still using the old non-vectorized path for some elements
-        if isinstance(c3d20_elements, list) and len(c3d20_elements) > 0:
-            if isinstance(c3d20_elements[0], torch.Tensor):
-                c3d20_elements = torch.stack(c3d20_elements)
-            else:
-                c3d20_elements = torch.tensor(c3d20_elements, dtype=torch.int64, device=fe.nodes.device)
+                c3d20_elements.append(c3d20_batch)
+                c3d20_indices.append(c3d8_indices)
 
 
-      # Combine original and new nodes
-    
-    
+
+    # Combine original and new nodes
     if not unique_edges:
         # No new nodes were created
         combined_nodes = original_nodes
@@ -391,26 +365,27 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
             new_fe.elems[elem_name] = elem_obj
     
     # Add the new second-order elements
-    for elem_name in element_names:
+    for i in range(len(element_names)):
+        elem_name = element_names[i]
         elem_obj = fe.elems[elem_name]
         
         # Determine what kind of element this was and add the converted elements
         if isinstance(elem_obj, C3D4):
-            if c3d10_elements.numel() > 0:
+            if len(c3d10_elements) > 0:
                 new_fe.add_element(
-                    C3D10(elems=c3d10_elements.cpu(), elems_index=c3d10_indices.cpu()),
+                    C3D10(elems=c3d10_elements[i].cpu(), elems_index=c3d10_indices[i].cpu()),
                     name=elem_name
                 )
         elif isinstance(elem_obj, C3D6):
-            if c3d15_elements.numel() > 0:
+            if len(c3d15_elements) > 0:
                 new_fe.add_element(
-                    C3D15(elems=c3d15_elements.cpu(), elems_index=c3d15_indices.cpu()),
+                    C3D15(elems=c3d15_elements[i].cpu(), elems_index=c3d15_indices[i].cpu()),
                     name=elem_name
                 )
         elif isinstance(elem_obj, C3D8):
-            if c3d20_elements.numel() > 0:
+            if len(c3d20_elements) > 0:
                 new_fe.add_element(
-                    C3D20(elems=c3d20_elements.cpu(), elems_index=c3d20_indices.cpu()),
+                    C3D20(elems=c3d20_elements[i].cpu(), elems_index=c3d20_indices[i].cpu()),
                     name=elem_name
                 )
 

@@ -105,16 +105,18 @@ class BaseElement(BaseObj):
 
         self.density = density
         
-    def find_surface(self, surface_ind: int, elems_ind: np.ndarray) -> np.ndarray:
+    def find_surface(self, surface_ind: int, elems_ind: np.ndarray):
         """
         Find the surface of the element
 
         Args:
             surface_ind (int): the index of the surface
             elems_ind (np.ndarray): the index of the element
-            
+        
+        Returns:
+            list[BaseSurface]: a list of surface elements
         """
-        return None
+        return []
     
     def set_order(self, order: int):
         """

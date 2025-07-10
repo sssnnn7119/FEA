@@ -30,6 +30,7 @@ class C3D6(Element_3D):
     def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
         super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 5
+        
     
     def initialize(self, fea):
         
@@ -86,14 +87,14 @@ class C3D6(Element_3D):
         
         if index_now.shape[0] == 0:
             tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
-            return initialize_surfaces(tri_elems)
+            return []
         
         if surface_ind in [0, 1]:
             if surface_ind == 0:
                 tri_elems = self._elems[index_now][:, [0, 2, 1]]
             elif surface_ind == 1:
                 tri_elems = self._elems[index_now][:, [3, 4, 5]]
-            return initialize_surfaces(tri_elems)
+            return [initialize_surfaces(tri_elems)]
         elif surface_ind in [2, 3, 4]:
             if surface_ind == 2:
                 quad_elems = self._elems[index_now][:, [0, 1, 4, 3]]
@@ -101,7 +102,7 @@ class C3D6(Element_3D):
                 quad_elems = self._elems[index_now][:, [1, 2, 5, 4]]
             elif surface_ind == 4:
                 quad_elems = self._elems[index_now][:, [2, 0, 3, 5]]
-            return initialize_surfaces(quad_elems)
+            return [initialize_surfaces(quad_elems)]
 
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
@@ -293,25 +294,25 @@ class C3D15(Element_3D):
         if surface_ind == 0:
             return torch.tensor([[8, 0, 2],
                                     [7, 1, 2],
-                                    [6, 0, 1]], dtype=torch.long)
+                                    [6, 0, 1]], dtype=torch.long, device='cpu')
         if surface_ind == 1:
             return torch.tensor([[9, 3, 4],
                                     [10, 4, 5],
-                                    [11, 3, 5]], dtype=torch.long)
+                                    [11, 3, 5]], dtype=torch.long, device='cpu')
         if surface_ind == 2:
             return torch.tensor([[6, 0, 1],
                                     [13, 1, 4],
                                     [9, 3, 4],
-                                    [12, 0, 3]], dtype=torch.long)
+                                    [12, 0, 3]], dtype=torch.long, device='cpu')
         if surface_ind == 3:
             return torch.tensor([[7, 1, 2],
                                     [14, 2, 5],
                                     [10, 4, 5],
-                                    [13, 1, 4]], dtype=torch.long)
+                                    [13, 1, 4]], dtype=torch.long, device='cpu')
         if surface_ind == 4:
             return torch.tensor([[8, 0, 2],
                                     [12, 0, 3],
                                     [11, 3, 5],
-                                    [14, 2, 5]], dtype=torch.long)
+                                    [14, 2, 5]], dtype=torch.long, device='cpu')
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")

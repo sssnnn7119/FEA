@@ -83,7 +83,8 @@ class FEA_Main():
         # initialize sets collections
         self.node_sets: dict[str, np.ndarray] = {}
         self.element_sets: dict[str, np.ndarray] = {}
-        self.surface_sets: dict[str, np.ndarray] = {}
+        self.surface_sets: dict[str, list[tuple[np.ndarray, int]]] = {}
+        """define the surface set of the 3D elements"""
 
         self._RGC_nameMap: dict[int, str]
         """
@@ -260,7 +261,7 @@ class FEA_Main():
                                          tol_error=tol_error)
         self.RGC = self._GC2RGC(self.GC)
 
-        self.refine_RGC()
+        self.RGC = self.refine_RGC()
         t1 = time.time()
 
         # print the information
@@ -517,6 +518,7 @@ class FEA_Main():
 
             if self._iter_now > self.maximum_iteration:
                 print('maximum iteration reached')
+                self.GC = GC
                 return False
 
             # calculate the force vector and tangential stiffness matrix
@@ -547,6 +549,7 @@ class FEA_Main():
                 GC, dGC, R, energy[-1])
 
             if alpha==0 and R.abs().max() > tol_error:
+                self.GC = GC
                 return False
 
             # if convergence has difficulty, reduce the load percentage
@@ -560,6 +563,7 @@ class FEA_Main():
             if low_alpha > 50:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
+                    self.GC = GC
                     break
                 return False
 
@@ -794,6 +798,7 @@ class FEA_Main():
         index = torch.where(K_indices[0] == K_indices[1])[0]
         diag = torch.zeros_like(R).scatter_add(0, K_indices[0, index],
                                                K_values[index]).sqrt()
+        diag[diag==0] = 1.0  # Avoid division by zero
         K_values_preconditioned = K_values / diag[K_indices[0]]
         K_values_preconditioned = K_values_preconditioned / diag[K_indices[1]]
         R_preconditioned = R / diag
@@ -972,8 +977,10 @@ class FEA_Main():
             raise ValueError(f"Element '{name}' not found in the model.")
 
     def refine_RGC(self):
+        RGC = self.RGC
         for e in self.elems.values():
-            e.refine_RGC(self.RGC, self.nodes)
+            RGC = e.refine_RGC(RGC, self.nodes)
+        return RGC
 
     def merge_elements(self, element_name_list: list[str], element_name_new: str) -> None:
         """
@@ -1342,7 +1349,7 @@ class FEA_Main():
             for e in self.elems.values():
                 s_now = e.find_surface(surf_ind, elem_ind)
                 if s_now is not None:
-                    surface.append(s_now)
+                    surface += (s_now)
         if len(surface) == 0:
             raise ValueError(f"Surface {surf_ind} not found in the model.")
         else:

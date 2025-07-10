@@ -782,36 +782,36 @@ class C3D20(Element_3D):
             return torch.tensor([[11, 0, 3],  # mid-edge between 0-3
                                 [10, 2, 3],  # mid-edge between 3-2
                                 [9, 1, 2],   # mid-edge between 2-1
-                                [8, 0, 1]], dtype=torch.long)  # mid-edge between 1-0
+                                [8, 0, 1]], dtype=torch.long, device='cpu')  # mid-edge between 1-0
         elif surface_ind == 1:
             # Top face: 4-5-6-7 with mid-edges 12,13,14,15
             return torch.tensor([[12, 4, 5],  # mid-edge between 4-5
                                 [13, 5, 6],  # mid-edge between 5-6
                                 [14, 6, 7],  # mid-edge between 6-7
-                                [15, 4, 7]], dtype=torch.long)  # mid-edge between 7-4
+                                [15, 4, 7]], dtype=torch.long, device='cpu')  # mid-edge between 7-4
         elif surface_ind == 2:
             # Front face: 0-1-5-4 with mid-edges 8,17,12,16
             return torch.tensor([[8, 0, 1],   # mid-edge between 0-1
                                 [17, 1, 5],  # mid-edge between 1-5
                                 [12, 4, 5],  # mid-edge between 5-4
-                                [16, 0, 4]], dtype=torch.long)  # mid-edge between 4-0
+                                [16, 0, 4]], dtype=torch.long, device='cpu')  # mid-edge between 4-0
         elif surface_ind == 3:
             # Right face: 1-2-6-5 with mid-edges 9,18,13,17
             return torch.tensor([[9, 1, 2],   # mid-edge between 1-2
                                 [18, 2, 6],  # mid-edge between 2-6
                                 [13, 5, 6],  # mid-edge between 6-5
-                                [17, 1, 5]], dtype=torch.long)  # mid-edge between 5-1
+                                [17, 1, 5]], dtype=torch.long, device='cpu')  # mid-edge between 5-1
         elif surface_ind == 4:
             # Back face: 2-3-7-6 with mid-edges 10,19,14,18
             return torch.tensor([[10, 2, 3],  # mid-edge between 2-3
                                 [19, 3, 7],  # mid-edge between 3-7
                                 [14, 6, 7],  # mid-edge between 7-6
-                                [18, 2, 6]], dtype=torch.long)  # mid-edge between 6-2
+                                [18, 2, 6]], dtype=torch.long, device='cpu')  # mid-edge between 6-2
         elif surface_ind == 5:
             # Left face: 0-4-7-3 with mid-edges 16,15,19,11
             return torch.tensor([[16, 0, 4],  # mid-edge between 0-4
                                 [15, 4, 7],  # mid-edge between 4-7
                                 [19, 3, 7],  # mid-edge between 7-3
-                                [11, 0, 3]], dtype=torch.long)  # mid-edge between 3-0
+                                [11, 0, 3]], dtype=torch.long, device='cpu')  # mid-edge between 3-0
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")

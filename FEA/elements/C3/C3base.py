@@ -15,22 +15,15 @@ class Element_3D(BaseElement):
                  elems: torch.Tensor) -> None:
         super().__init__(elems_index, elems)
 
-        self.shape_function_gaussian: list[torch.Tensor] = []
+        self.shape_function_gaussian: torch.Tensor
         """
             the shape functions of each guassian point
-            [
-                [
-                    g: guassian point
-                    e: element
-                    a: a-th node
-                ],
                 [
                     g: guassian point
                     e: element
                     i: derivative
                     a: a-th node
                 ]
-            ]
         """
 
         self.shape_function: list[torch.Tensor]
@@ -79,13 +72,16 @@ class Element_3D(BaseElement):
                 
         """
                 
-        self.surf_order: torch.Tensor = torch.Tensor([2, 2, 2, 2, 2, 2])
+        self.surf_order: torch.Tensor = torch.LongTensor([0, 0, 0, 0, 0, 0], device='cpu').to(torch.int8)
         """
             whether to reduce the order of the element, for the first order element, this parameter is not used,\n
-            size: [surface]
+            size: [surface] or [element, surface]
 
-            1: reduce the order of the element on the surface,\n
-            2: remain the order of the element on the surface,\n
+            0: slave surface, i.e., the node on the surface is determined by other surfaces,\n
+            1: force reduce the order of the element on the surface,\n
+            2: force remain the order of the element on the surface,\n
+
+            priority: 2>1>0
         """
 
         self._num_gaussian: int
@@ -153,66 +149,55 @@ class Element_3D(BaseElement):
             nodes: [p, 3], the global coordinates of the element
         """
 
-        # if the order of the element is 1, the shape function is to be modified
-        self.shape_function[0] = self.reduce_order_shape_function(self.shape_function[0])
-
-        # get the derivative of the shape function
-        self.shape_function.append(
-            torch.stack([
-                self._shape_function_derivative(self.shape_function[0], 0),
-                self._shape_function_derivative(self.shape_function[0], 1),
-                self._shape_function_derivative(self.shape_function[0], 2),
-            ],
-                        dim=0))
-
         # get the coordinates of the guassian points
-        pp = torch.zeros([self._num_gaussian, self.shape_function[0].shape[1]])
-        pp[:, 0] = 1
-        pp[:, 1] = gauss_coordinates[:, 0]
-        pp[:, 2] = gauss_coordinates[:, 1]
-        pp[:, 3] = gauss_coordinates[:, 2]
-        if self.shape_function[0].shape[1] > 4:
-            pp[:, 4] = gauss_coordinates[:, 0] * gauss_coordinates[:, 1]
-            pp[:, 5] = gauss_coordinates[:, 1] * gauss_coordinates[:, 2]
-            pp[:, 6] = gauss_coordinates[:, 2] * gauss_coordinates[:, 0]
-        if self.shape_function[0].shape[1] > 7:
-            pp[:, 7] = gauss_coordinates[:, 0]**2
-            pp[:, 8] = gauss_coordinates[:, 1]**2
-            pp[:, 9] = gauss_coordinates[:, 2]**2
-        if self.shape_function[0].shape[1] > 10:
-            pp[:, 10] = gauss_coordinates[:, 0]**2 * gauss_coordinates[:, 1]
-            pp[:, 11] = gauss_coordinates[:, 1]**2 * gauss_coordinates[:, 0]
-            pp[:, 12] = gauss_coordinates[:, 1]**2 * gauss_coordinates[:, 2]
-            pp[:, 13] = gauss_coordinates[:, 2]**2 * gauss_coordinates[:, 1]
-            pp[:, 14] = gauss_coordinates[:, 2]**2 * gauss_coordinates[:, 0]
-            pp[:, 15] = gauss_coordinates[:, 0]**2 * gauss_coordinates[:, 2]
-            pp[:, 16] = gauss_coordinates[:, 0] * gauss_coordinates[:, 1] * \
-                        gauss_coordinates[:, 2]
-        if self.shape_function[0].shape[1] > 17:
-            pp[:, 17] = gauss_coordinates[:, 0]**3
-            pp[:, 18] = gauss_coordinates[:, 1]**3
-            pp[:, 19] = gauss_coordinates[:, 2]**3
+        pp = self._get_interpolation_coordinates(gauss_coordinates)
 
-        # calculate the Jacobian at the guassian points
-        Jacobian = torch.zeros([self._num_gaussian, len(self._elems), 3, 3])
-        shape_now = self.shape_function[1]
-        temp_ = torch.einsum('gb, mab->gma', pp, shape_now)
-        for i in range(self.num_nodes_per_elem):
-            Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
-                                     nodes[self._elems[:, i]])
+        # get the possible surface order
+        if self.surf_order.ndim == 1:
+            self.surf_order = self.surf_order.unsqueeze(0).repeat(self._elems.shape[0], 1)
+        self.surf_order = self.surf_order[:, :self.num_surfaces]
+        surf_order_all = self._get_all_possible_surface_order()
 
-        # Jacobian_Function
-        # J: g(Gaussian) * e * 3(ref) * 3(rest)
-        det_Jacobian = Jacobian.det()
-        inv_Jacobian = Jacobian.inverse()
-        shapeFun1 = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
-                                shape_now)
-        shapeFun0 = torch.einsum('ab, gb->ga', self.shape_function[0],
-                                      pp)
-        
-        self.shape_function_gaussian = [shapeFun0, shapeFun1]
+        # prepare the information for the FEA
+        shapeFun1 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, self.num_nodes_per_elem])
+        det_Jacobian = torch.zeros([self._num_gaussian, self._elems.shape[0]])
+        for order_ind in range(surf_order_all.shape[0]):
+            surf_order_now = surf_order_all[order_ind]
+
+            elem_index = torch.where((self.surf_order - surf_order_now).abs().sum(1) == 0)[0]
+            if elem_index.shape[0] == 0:
+                continue
+            elem_now = self._elems[elem_index]
+
+            # process the shape function for the reduced order elements
+            shape0_now = self._reduce_order_shape_function(self.shape_function[0], surf_order_now)
+
+            # get the derivative of the shape function
+            shape1_now = torch.stack([
+                    self._shape_function_derivative(shape0_now, 0),
+                    self._shape_function_derivative(shape0_now, 1),
+                    self._shape_function_derivative(shape0_now, 2),
+                ],
+                            dim=0)
+
+            # calculate the Jacobian at the guassian points
+            Jacobian = torch.zeros([self._num_gaussian, elem_index.shape[0], 3, 3])
+            temp_ = torch.einsum('gb, mab->gma', pp, shape1_now)
+            for i in range(self.num_nodes_per_elem):
+                Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
+                                        nodes[elem_now[:, i]])
+
+            # Jacobian_Function
+            # J: g(Gaussian) * e * 3(ref) * 3(rest)
+            det_Jacobian[:, elem_index] = Jacobian.det()
+            inv_Jacobian = Jacobian.inverse()
+            shapeFun1[:, elem_index] = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
+                                    shape1_now)
+
         self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight)
+        self.shape_function_gaussian = shapeFun1
 
+        
     def _shape_function_derivative(self, shape_function: torch.Tensor, ind: int):
         """
         get the derivative of the shape function
@@ -277,26 +262,67 @@ class Element_3D(BaseElement):
                 result[:, 9] = 3 * shape_function[:, 19]
 
         return result
-  
-    def get_gaussian_points(self, nodes: torch.Tensor) -> torch.Tensor:
-        """
-            get the gaussian points of the element
-        """
-        points_request = torch.zeros(
-            [self._num_gaussian, self._elems.shape[0], 3])
-        for i in range(self._elems.shape[1]):
-            points_request = points_request + torch.einsum(
-                'g,eI->geI', self.shape_function_gaussian[0][:, i], nodes[self._elems[:,
-                                                                         i]])
-        return points_request
     
+    def _get_interpolation_coordinates(self, nodes: torch.Tensor) -> torch.Tensor:
+        """
+        Generate interpolation coordinates for shape functions.
+        This method constructs a matrix of polynomial terms used for shape function interpolation
+        in a 3D element. It builds terms based on the shape function's complexity, supporting
+        constant, linear, quadratic, and cubic terms along with mixed terms.
+
+        Args:
+            nodes(torch.Tensor):
+                Gaussian integration points with shape [num_gaussian, 3],
+                containing the (x,y,z) coordinates of each point.
+
+        Returns:
+            torch.Tensor: 
+                Matrix of polynomial terms with shape [num_gaussian, num_terms],
+                where num_terms depends on the polynomial order of the shape functions:
+                - 4 terms for linear (constant + x, y, z)
+                - 7 terms for bilinear (adds xy, yz, zx)
+                - 10 terms for quadratic (adds x², y², z²)
+                - 17 terms for cubic without full terms (adds mixed quadratic terms + xyz)
+                - 20 terms for full cubic (adds x³, y³, z³)
+        """
+        
+
+        pp = torch.zeros([self._num_gaussian, self.shape_function[0].shape[1]])
+        pp[:, 0] = 1
+        pp[:, 1] = nodes[:, 0]
+        pp[:, 2] = nodes[:, 1]
+        pp[:, 3] = nodes[:, 2]
+        if self.shape_function[0].shape[1] > 4:
+            pp[:, 4] = nodes[:, 0] * nodes[:, 1]
+            pp[:, 5] = nodes[:, 1] * nodes[:, 2]
+            pp[:, 6] = nodes[:, 2] * nodes[:, 0]
+        if self.shape_function[0].shape[1] > 7:
+            pp[:, 7] = nodes[:, 0]**2
+            pp[:, 8] = nodes[:, 1]**2
+            pp[:, 9] = nodes[:, 2]**2
+        if self.shape_function[0].shape[1] > 10:
+            pp[:, 10] = nodes[:, 0]**2 * nodes[:, 1]
+            pp[:, 11] = nodes[:, 1]**2 * nodes[:, 0]
+            pp[:, 12] = nodes[:, 1]**2 * nodes[:, 2]
+            pp[:, 13] = nodes[:, 2]**2 * nodes[:, 1]
+            pp[:, 14] = nodes[:, 2]**2 * nodes[:, 0]
+            pp[:, 15] = nodes[:, 0]**2 * nodes[:, 2]
+            pp[:, 16] = nodes[:, 0] * nodes[:, 1] * \
+                        nodes[:, 2]
+        if self.shape_function[0].shape[1] > 17:
+            pp[:, 17] = nodes[:, 0]**3
+            pp[:, 18] = nodes[:, 1]**3
+            pp[:, 19] = nodes[:, 2]**3
+        
+        return pp
+
     def potential_Energy(self, RGC: list[torch.Tensor]):
         
         U = RGC[0].reshape([-1, 3])
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
             Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                         self.shape_function_gaussian[1][:, :, :, i],
+                                         self.shape_function_gaussian[:, :, :, i],
                                          U[self._elems[:, i]])
 
         F = Ugrad.clone()
@@ -323,14 +349,14 @@ class Element_3D(BaseElement):
         
         # calculate the element residual force
         Relement = torch.einsum('geij,geia,ge->aje', s,
-                                self.shape_function_gaussian[1],
+                                self.shape_function_gaussian,
                                 self.gaussian_weight).flatten()
         
         # calculate the element tangential stiffness matrix
         Ka_element = torch.einsum('geijkl,gelb,geia,ge->ajbke',
                                    C,
-                                  self.shape_function_gaussian[1],
-                                  self.shape_function_gaussian[1],
+                                  self.shape_function_gaussian,
+                                  self.shape_function_gaussian,
                                   self.gaussian_weight).flatten()
         
         # assembly the stiffness matrix and residual force                 
@@ -346,7 +372,7 @@ class Element_3D(BaseElement):
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
             Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                         self.shape_function_gaussian[1][:, :, :, i],
+                                         self.shape_function_gaussian[:, :, :, i],
                                          U[self._elems[:, i]])
 
         F = Ugrad.clone()
@@ -377,7 +403,7 @@ class Element_3D(BaseElement):
             Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
             for i in range(self.num_nodes_per_elem):
                 Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                            self.shape_function_gaussian[1][:, :, :, i],
+                                            self.shape_function_gaussian[:, :, :, i],
                                             U[self._elems[:, i]])
             F = Ugrad.clone()
             F[:, :, 0, 0] += 1
@@ -387,56 +413,28 @@ class Element_3D(BaseElement):
  
             return (self.gaussian_weight * J).sum()
 
-    def map(self, U: torch.Tensor, p0: torch.Tensor, derivative: int):
-        """
-        map the element to the global coordinate system
-            
-        Args:
-            U: [P, 3], the global displacement of the element
-            p0: [p, 3], the local coordinates of the element
-
-            derivative: 0 for the shape function, 1 for its derivative
-
-        Returns:
-            torch.Tensor: the global coordinates of the element
-        """
-        pp = torch.zeros([p0.shape[0], 10])
-        pp[:, 0] = 1
-        pp[:, 1] = p0[:, 0]
-        pp[:, 2] = p0[:, 1]
-        pp[:, 3] = p0[:, 2]
-        pp[:, 4] = p0[:, 0] * p0[:, 1]
-        pp[:, 5] = p0[:, 1] * p0[:, 2]
-        pp[:, 6] = p0[:, 2] * p0[:, 0]
-        pp[:, 7] = p0[:, 0]**2
-        pp[:, 8] = p0[:, 1]**2
-        pp[:, 9] = p0[:, 2]**2
-        shape_now = self.shape_function[derivative]
-
-        results = torch.zeros([p0.shape[0], 3, 3])
-        for i in range(self.num_nodes_per_elem):
-            results += torch.einsum('pb,mb,ei->peim', pp, shape_now[:, i],
-                                     U[self._elems[:, i]])
-            
-        return results
-
     def set_required_DoFs(
             self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
         """
         Modify the RGC_remain_index
         """
         RGC_remain_index[0][self._elems.unique()] = True
-
-        mid_nodes_index = self.get_2nd_order_point_index()
+        
+        mid_nodes_index = self.get_2nd_order_point_index(order_required=1)
         if mid_nodes_index.shape[0] > 0:
             # set the mid nodes to be not required DoFs
             RGC_remain_index[0][mid_nodes_index[:, 0]] = False
-        
+
+        mid_nodes_index = self.get_2nd_order_point_index(order_required=2)
+        if mid_nodes_index.shape[0] > 0:
+            # set the mid nodes to be not required DoFs
+            RGC_remain_index[0][mid_nodes_index[:, 0]] = True
+
         return RGC_remain_index
     
     # region second order methods
 
-    def get_2nd_order_point_index(self):
+    def get_2nd_order_point_index(self, order_required = 1) -> torch.Tensor:
         """
         The absolute point index of the element that lies in the middle of the element
 
@@ -450,13 +448,39 @@ class Element_3D(BaseElement):
                 [1]: the index of the neighbor node of the middle node of the element\n
                 [2]: the index of the other neighbor node of the middle node of the element\n
         """
-        mid_points_index = self.get_2nd_order_point_index_surface_all()
-        absolute_index = torch.stack([self._elems[:, mid_points_index[:, 0]],
-                                      self._elems[:, mid_points_index[:, 1]],
-                                      self._elems[:, mid_points_index[:, 2]]],
-                                     dim=-1).reshape([-1, 3])
-        absolute_index = absolute_index.unique(dim=0)
-        return absolute_index
+        if self.surf_order.dim() == 1:
+            # if the surf_order is a 1D tensor, it means that the same order is applied to all surfaces
+            surf_order = self.surf_order.unsqueeze(0).repeat([self._elems.shape[0], 1])
+        else:
+            # if the surf_order is a 2D tensor, it means that different orders are applied to different surfaces
+            surf_order = self.surf_order
+
+        # get the mid node index
+        mid_nodes_index = []
+        for surf_ind in range(self.num_surfaces):
+            # find which element surface to reduce
+            ind_reduce_now = torch.where(surf_order[:, surf_ind] == order_required)[0]
+            if ind_reduce_now.shape[0] == 0:
+                # if there is no element to reduce, continue
+                continue
+
+            # get the relative point index of the element that lies in the middle of the element
+            mid_nodes_index_now = self.get_2nd_order_point_index_surface(surf_ind)
+            if mid_nodes_index_now.shape[0] == 0:
+                # if there is no mid node, continue
+                continue
+
+            # add the mid node index to the list
+            mid_nodes_index.append(self._elems[ind_reduce_now][:, mid_nodes_index_now].reshape([-1, 3]))
+
+        if len(mid_nodes_index) == 0:
+            # if there is no mid node, return an empty tensor
+            return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
+        
+        mid_nodes_index = torch.cat(mid_nodes_index, dim=0)
+        mid_nodes_index = mid_nodes_index.unique(dim=0)
+
+        return mid_nodes_index
     
     def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
         """
@@ -476,39 +500,26 @@ class Element_3D(BaseElement):
                     [2]: the index of the other neighbor node of the middle node of the element\n
         """
         return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
-
-    def get_2nd_order_point_index_surface_all(self) -> torch.Tensor:
+    
+    def _get_all_possible_surface_order(self) -> torch.Tensor:
         """
-        The relative point index of the element that lies in the middle of the element
+        Get all possible surface orders for the element.
 
-        get the 2-nd order point index of the element that lies in the middle of the element
-        only for the first order faces of the second order element
-        
         Returns:
-            torch.Tensor: the 2-nd order point index of the element \n
-                size: [point_index, 3]\n
-                    [0]: the index of the middle node of the element\n
-                    [1]: the index of the neighbor node of the middle node of the element\n
-                    [2]: the index of the other neighbor node of the middle node of the element\n
+            torch.Tensor: A tensor containing the possible surface orders.
         """
 
-        mid_nodes_index = []
+        # For a second order element, the possible surface orders are 1 and 2
+        # 1 means the surface is reduced to a mid node, 2 means the surface
+
+        result = torch.ones([3**self.num_surfaces, self.num_surfaces], dtype=torch.int8, device='cpu')
         for i in range(self.num_surfaces):
-            if self.surf_order[i] == 1:
-                # reduce the order of the shape function
-                mid_nodes_index.append(
-                    self.get_2nd_order_point_index_surface(i).cpu())
-        if len(mid_nodes_index) == 0:
-            # if there is no mid node, return an empty tensor
-            return torch.zeros([0, 3], dtype=torch.int64, device='cpu')
-        mid_nodes_index = torch.cat(mid_nodes_index, dim=0)
+            # set the i-th column to 1 or 2 based on the binary representation of the row index
+            result[:, i] = (torch.arange(0, 3**self.num_surfaces, device='cpu') // (3**i)) % 3
 
-        # unique the mid_nodes_index
-        mid_nodes_index = torch.unique(mid_nodes_index, dim=0)
+        return result
 
-        return mid_nodes_index
-
-    def reduce_order_shape_function(self, shape_function: torch.Tensor) -> torch.Tensor:
+    def _reduce_order_shape_function(self, shape_function: torch.Tensor, surf_order: torch.Tensor) -> torch.Tensor:
         """
         Reduce the order of the shape function by averaging the values of the neighboring nodes.
 
@@ -517,13 +528,43 @@ class Element_3D(BaseElement):
         Returns:
             torch.Tensor: [a, b], the reduced order shape function of the element
         """
-
+    
         # get the mid node index
-        mid_nodes_index = self.get_2nd_order_point_index_surface_all()
+        mid_nodes_index_list = []
+        for i in range(self.num_surfaces):
+            if surf_order[i] == 1:
+                # reduce the order of the shape function
+                mid_nodes_index_list.append(
+                    self.get_2nd_order_point_index_surface(i).cpu())
+        if len(mid_nodes_index_list) == 0:
+            # if there is no mid node, return an empty tensor
+            return shape_function.clone()
+        
+        mid_nodes_index = torch.cat(mid_nodes_index_list, dim=0)
+
+        # unique the mid_nodes_index
+        mid_nodes_index: torch.Tensor = torch.unique(mid_nodes_index, dim=0)
+
+        
+        # if the mid point belong to a surface with order 2, then the node will not be delete
+        mid2_nodes_index_list = []
+        for i in range(self.num_surfaces):
+            if surf_order[i] == 2:
+                # reduce the order of the shape function
+                mid2_nodes_index_list.append(
+                    self.get_2nd_order_point_index_surface(i).cpu())
+
+        if len(mid2_nodes_index_list) != 0:
+            mid2_nodes_index = torch.cat(mid2_nodes_index_list, dim=0)
+            mid2_nodes_index: torch.Tensor = torch.unique(mid2_nodes_index, dim=0)
+
+            matches = (mid_nodes_index.unsqueeze(1) == mid2_nodes_index.unsqueeze(0)).all(dim=2)
+            mask = ~matches.any(dim=1)
+            mid_nodes_index = mid_nodes_index[mask]
 
         if mid_nodes_index.shape[0] == 0:
             # if there is no mid node, return the original shape function
-            return shape_function
+            return shape_function.clone()
 
         # reduce the order of the shape function
         shape_function_reduced = shape_function.clone()

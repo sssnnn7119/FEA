@@ -5,8 +5,9 @@ from .C3 import C3D4, C3D6, C3D8R, C3D10, C3D15, C3D8, C3D20, Element_3D
 from . import materials
 from .C3.surfaces import initialize_surfaces, T3, T6, Q4, Q8, BaseSurface
 # methods for the elements
-from .generate_shell import generate_shell_from_surface, add_shell_elements_to_model
-from .convert_elements import convert_to_second_order
+from .C3 import generate_shell_from_surface, add_shell_elements_to_model
+from .C3 import convert_to_second_order
+from .C3 import divide_surface_elements, set_surface_2order
 
 def initialize_element(element_type: str,
                        elems_index: torch.Tensor, elems: torch.Tensor, *args,

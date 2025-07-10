@@ -8,7 +8,7 @@ import numpy as np
 
 
 if TYPE_CHECKING:
-    from ..Main import FEA_Main
+    from ....Main import FEA_Main
 
 def calculate_new_nodes(node_idx_map: torch.Tensor, nodes: torch.Tensor, surface_elems: torch.Tensor, surface_node_indices: torch.Tensor, shell_thickness: float):
     """

@@ -61,7 +61,7 @@ class C3D4(Element_3D):
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
 
-        return initialize_surfaces(tri_elems)
+        return [initialize_surfaces(tri_elems)]
     
 class C3D10(Element_3D):
     """
@@ -123,33 +123,34 @@ class C3D10(Element_3D):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
         
         if index_now.shape[0] == 0:
-            tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
+            return []
         
+        ind_1order = torch.where(self.surf_order[index_now, surface_ind] == 1)[0]
+        ind_2order = torch.where(self.surf_order[index_now, surface_ind] != 1)[0]
 
         if surface_ind == 0:
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [0, 2, 1]]
-            else:
-                tri_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
+            
+            T3_elems = self._elems[index_now][ind_1order][:, [0, 2, 1]]
+            T6_elems = self._elems[index_now][ind_2order][:, [0, 2, 1, 6, 5, 4]]
+
         elif surface_ind == 1:
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [0, 1, 3]]
-            else:
-                tri_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
+            T3_elems = self._elems[index_now][ind_1order][:, [0, 1, 3]]
+            T6_elems = self._elems[index_now][ind_2order][:, [0, 1, 3, 4, 8, 7]]
         elif surface_ind == 2:
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [1, 2, 3]]
-            else:
-                tri_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
+            T3_elems = self._elems[index_now][ind_1order][:, [1, 2, 3]]
+            T6_elems = self._elems[index_now][ind_2order][:, [1, 2, 3, 5, 9, 8]]
         elif surface_ind == 3:
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [0, 3, 2]]
-            else:
-                tri_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
+            T3_elems = self._elems[index_now][ind_1order][:, [0, 3, 2]]
+            T6_elems = self._elems[index_now][ind_2order][:, [0, 3, 2, 7, 9, 6]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
 
-        return initialize_surfaces(tri_elems)
+        result = []
+        if T3_elems.shape[0] > 0:
+            result.append(initialize_surfaces(T3_elems))
+        if T6_elems.shape[0] > 0:
+            result.append(initialize_surfaces(T6_elems))
+        return result
 
     def get_2nd_order_point_index_surface(self, surface_ind: int):
         """
@@ -159,19 +160,19 @@ class C3D10(Element_3D):
         if surface_ind == 0:
             return torch.tensor([[6, 0, 2],
                                     [5, 1, 2],
-                                    [4, 0, 1]], dtype=torch.long)
+                                    [4, 0, 1]], dtype=torch.long, device='cpu')
         elif surface_ind == 1:
             return torch.tensor([[4, 0, 1],
                     [8, 1, 3],
-                    [7, 0, 3]], dtype=torch.long)
+                    [7, 0, 3]], dtype=torch.long, device='cpu')
         elif surface_ind == 2:
             return torch.tensor([[5, 1, 2],
                     [9, 2, 3],
-                    [8, 1, 3]], dtype=torch.long)
+                    [8, 1, 3]], dtype=torch.long, device='cpu')
         elif surface_ind == 3:
             return torch.tensor([[7, 0, 3],
                     [9, 2, 3],
-                    [6, 0, 2]], dtype=torch.long)
+                    [6, 0, 2]], dtype=torch.long, device='cpu')
 
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
