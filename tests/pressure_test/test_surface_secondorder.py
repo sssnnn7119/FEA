@@ -28,28 +28,41 @@ fe = FEA.from_inp(fem)
 fe.maximum_iteration = 1000
 
 
+# # convert to the second order elements
+str_now = 'element-0'
+elems0 = fe.elems[str_now]
+material0 = fe.elems[str_now].materials
+ind_surf = 0
+elems_name_list = []
+surf_name_list = []
+while True:
+    surf_name = 'surface_%d_All'%ind_surf
+    if not surf_name in fe.surface_sets.keys():
+        break
+    elems_surface, elems_other = FEA.elements.divide_surface_elements(fe=fe, name_element=str_now, name_surface=surf_name)
 
+    fe.delete_element(str_now)
+    fe.add_element(elems_other, name='element-0')
+    fe.add_element(elems_surface, name='element-surf-%d'%ind_surf)
+    elems_name_list.append('element-surf-%d'%ind_surf)
+    surf_name_list.append(surf_name)
 
-elems_surface, elems_other = FEA.elements.divide_surface_elements(fe=fe, name_element='element-0', name_surface='surface_1_All')
+    ind_surf+=1
 
-material0 = fe.elems['element-0'].materials
-fe.delete_element('element-0')
-fe.add_element(elems_other, name='element-1')
-fe.add_element(elems_surface, name='element-2')
+fe.merge_elements(element_name_list=elems_name_list, element_name_new='element-sensitivity')
 
+fe = FEA.elements.convert_to_second_order(fe, ['element-sensitivity'])
 
-fe = FEA.elements.convert_to_second_order(fe, ['element-2'])
-fe.elems['element-2'] = FEA.elements.set_surface_2order(fe=fe, name_elems='element-2', name_surface='surface_1_All')
+element: FEA.elements.Element_3D = fe.elems['element-sensitivity']
+element.surf_order = torch.ones([element._elems.shape[0], 4], dtype=torch.int8, device='cpu')
 
-elems_1order: FEA.elements.Element_3D = fe.elems['element-1']
-elems_2order: FEA.elements.Element_3D = fe.elems['element-2']
+for surf_name in surf_name_list:
+    fe.elems['element-sensitivity'] = FEA.elements.set_surface_2order(fe=fe, name_elems='element-sensitivity', name_surface=surf_name)
+
+elems_1order: FEA.elements.Element_3D = fe.elems['element-0']
+elems_2order: FEA.elements.Element_3D = fe.elems['element-sensitivity']
 elems_1order.set_materials(material0)
 elems_2order.set_materials(material0)
-
-# fe = FEA.elements.convert_to_second_order(fe, ['element-0'])
-# fe.elems['element-0'].set_materials(material0)
-
-
 
 fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')

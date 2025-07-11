@@ -22,7 +22,7 @@ def divide_surface_elements(fe: FEA.FEA_Main, name_element: str, name_surface: s
         ind_surface_element += elem_ind_now.tolist()
     ind_surface_element = np.array(ind_surface_element, dtype=np.int64)
     ind_surface_element = np.unique(ind_surface_element)
-    ind_other_element = np.setdiff1d(np.arange(elems_now._elems.shape[0]), ind_surface_element)
+    ind_other_element = np.setdiff1d(elems_now._elems_index.numpy(), ind_surface_element)
 
     ind_other_element = torch.tensor(ind_other_element, dtype=torch.int64, device=elems_now._elems.device)
     ind_surface_element = torch.tensor(ind_surface_element, dtype=torch.int64, device=elems_now._elems.device)
@@ -44,8 +44,10 @@ def set_surface_2order(fe: FEA.FEA_Main, name_elems: str, name_surface: str):
 
     element = element0.__class__(elems_index=element0._elems_index, elems=element0._elems)
     surface = fe.surface_sets[name_surface]
-    element.surf_order = torch.ones([element._elems.shape[0], 4], dtype=torch.int8, device='cpu')
+    element.surf_order = element0.surf_order.clone()
+    if element.surf_order.sum() == 0:
+        element.surf_order = torch.ones([element._elems.shape[0], 4], dtype=torch.int8, device='cpu')
     for surf_ind in range(len(surface)):
-        elem_ind_now = torch.where(torch.isin(element._elems_index, torch.Tensor(surface[surf_ind][0])))[0]
-        element.surf_order[elem_ind_now, surf_ind] = 2
+        elem_ind_now = torch.where(torch.isin(element._elems_index, torch.from_numpy(surface[surf_ind][0])))[0]
+        element.surf_order[elem_ind_now, surface[surf_ind][1]] = 2
     return element

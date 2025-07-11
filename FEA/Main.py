@@ -259,9 +259,8 @@ class FEA_Main():
         # start the iteration
         result = self._solve_iteration(RGC=self.RGC,
                                          tol_error=tol_error)
-        self.RGC = self._GC2RGC(self.GC)
-
-        self.RGC = self.refine_RGC()
+        
+        self.RGC = self.refine_RGC(self._GC2RGC(self.GC))
         t1 = time.time()
 
         # print the information
@@ -976,11 +975,11 @@ class FEA_Main():
         else:
             raise ValueError(f"Element '{name}' not found in the model.")
 
-    def refine_RGC(self):
-        RGC = self.RGC
+    def refine_RGC(self, RGC: list[torch.Tensor]) -> list[torch.Tensor]:
+        RGC_out = [RGC[i].clone().detach() for i in range(len(RGC))]
         for e in self.elems.values():
-            RGC = e.refine_RGC(RGC, self.nodes)
-        return RGC
+            RGC_out = e.refine_RGC(RGC_out, self.nodes)
+        return RGC_out
 
     def merge_elements(self, element_name_list: list[str], element_name_new: str) -> None:
         """
@@ -997,7 +996,10 @@ class FEA_Main():
             ValueError: If elements are of different types or if any element name is not found.
         """
         if len(element_name_list) < 2:
-            raise ValueError("At least two elements must be provided for merging")
+            elems0 = self.elems[element_name_list[0]]
+            self.add_element(elems0, name=element_name_new)
+            self.delete_element(element_name_list[0])
+            return
             
         # Check if all elements exist
         for name in element_name_list:
@@ -1419,13 +1421,14 @@ class FEA_Main():
 
         for n in name:
             if n in self.surface_sets:
-                surface = self.get_surface_triangles(n)
-                surface = torch.cat(surface, dim=0).cpu().numpy()
+                surface = self.get_surface_elements(n)
+
                 mlab.triangular_mesh(self.nodes[:, 0].cpu().numpy(),
                                      self.nodes[:, 1].cpu().numpy(),
                                      self.nodes[:, 2].cpu().numpy(),
-                                     surface,
+                                     surface[0]._elems[:3].cpu().numpy(),
                                      opacity=0.5)
+                
 
                 surface = mlab.pipeline.surface(
                     mlab.pipeline.triangular_mesh_source(

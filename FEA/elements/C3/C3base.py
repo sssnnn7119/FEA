@@ -94,6 +94,9 @@ class Element_3D(BaseElement):
             the number of surfaces of the element
         """
 
+        self.gaussian_coordinates: torch.Tensor
+        """the coordinates of gaussian points in the reference space"""
+
     def initialize(self, fea) -> None:
 
         super().initialize(fea)
@@ -150,6 +153,7 @@ class Element_3D(BaseElement):
         """
 
         # get the coordinates of the guassian points
+        self.gaussian_coordinates = gauss_coordinates.cpu()
         pp = self._get_interpolation_coordinates(gauss_coordinates)
 
         # get the possible surface order
@@ -197,6 +201,7 @@ class Element_3D(BaseElement):
         self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight)
         self.shape_function_gaussian = shapeFun1
 
+        
         
     def _shape_function_derivative(self, shape_function: torch.Tensor, ind: int):
         """
@@ -287,7 +292,7 @@ class Element_3D(BaseElement):
         """
         
 
-        pp = torch.zeros([self._num_gaussian, self.shape_function[0].shape[1]])
+        pp = torch.zeros([self._num_gaussian, self.shape_function[0].shape[1]], device=nodes.device)
         pp[:, 0] = 1
         pp[:, 1] = nodes[:, 0]
         pp[:, 2] = nodes[:, 1]
@@ -315,6 +320,19 @@ class Element_3D(BaseElement):
             pp[:, 19] = nodes[:, 2]**3
         
         return pp
+
+    def get_gaussian_points(self, nodes: torch.Tensor):
+        pp = self._get_interpolation_coordinates(self.gaussian_coordinates)
+        shapeFun0 = torch.einsum('ab, gb->ga', self.shape_function[0],
+                                      pp).cpu()
+        gaussian_position = torch.zeros(
+            [self._num_gaussian, self._elems.shape[0], 3], device='cpu')
+        for i in range(self._elems.shape[1]):
+            gaussian_position = gaussian_position + torch.einsum(
+                'g,eI->geI', shapeFun0[:, i], nodes[self._elems[:,
+                                                                         i]].cpu())
+        return gaussian_position.to(nodes.device)
+    
 
     def potential_Energy(self, RGC: list[torch.Tensor]):
         
@@ -582,6 +600,8 @@ class Element_3D(BaseElement):
     def refine_RGC(self, RGC: list[torch.Tensor], nodes: torch.Tensor) -> list[torch.Tensor]:
         """
         Refine the first order surface's nodes, to make them the middle nodes of the neighboring nodes.
+
+        This method will not create new RGC, directly modify the input RGC.
         
         Args:
             RGC: List of Reference Grid Coordinates
@@ -590,7 +610,21 @@ class Element_3D(BaseElement):
         Returns:
             Updated RGC
         """
-        mid_nodes_index = self.get_2nd_order_point_index()
+        mid_nodes_index = self.get_2nd_order_point_index(order_required=1)
+        mid2_nodes_index = self.get_2nd_order_point_index(order_required=2)
+
+        if mid_nodes_index.shape[0] > 0 and mid2_nodes_index.shape[0] > 0:
+            # Remove from mid_nodes_index any nodes that are also in mid2_nodes_index
+            # First convert to node indices only (first column of each tensor)
+            mid_node_ids = mid_nodes_index[:, 0]
+            mid2_node_ids = mid2_nodes_index[:, 0]
+            
+            # Find which mid nodes should be kept (not in mid2)
+            mask = torch.where(~torch.isin(mid_node_ids, mid2_node_ids))[0]
+            
+            # Filter the mid_nodes_index to only include nodes not in mid2
+            mid_nodes_index = mid_nodes_index[mask]
+        
         RGC[0][mid_nodes_index[:, 0]] = (RGC[0][mid_nodes_index[:, 1]] + RGC[0][mid_nodes_index[:, 2]]) / 2 + (nodes[mid_nodes_index[:, 1]] + nodes[mid_nodes_index[:, 2]] - 2 * nodes[mid_nodes_index[:, 0]]) / 2
         
         return RGC
