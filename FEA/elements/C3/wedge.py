@@ -245,46 +245,51 @@ class C3D15(Element_3D):
         index_now = np.where(np.isin(self._elems_index, elems_ind))[0]
         
         if index_now.shape[0] == 0:
-            tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
-            return initialize_surfaces(tri_elems)
+            return []
+        
+        ind_1order = torch.where(self.surf_order[index_now, surface_ind] == 1)[0]
+        ind_2order = torch.where(self.surf_order[index_now, surface_ind] != 1)[0]
 
         if surface_ind == 0:
             # Bottom triangular face: 0(8)2(7)1(6) -> T6 elements
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [0, 2, 1]]
-            else:
-                tri_elems = self._elems[index_now][:, [0, 2, 1, 8, 7, 6]]
-            return initialize_surfaces(tri_elems)
+            T3_elems = self._elems[index_now][ind_1order][:, [0, 2, 1]]
+            T6_elems = self._elems[index_now][ind_2order][:, [0, 2, 1, 8, 7, 6]]
+            
         elif surface_ind == 1:
             # Top triangular face: 3(9)4(10)5(11) -> T6 elements
-            if self.surf_order[surface_ind] == 1:
-                tri_elems = self._elems[index_now][:, [3, 4, 5]]
-            else:
-                tri_elems = self._elems[index_now][:, [3, 4, 5, 9, 10, 11]]
-            return initialize_surfaces(tri_elems)
+
+            T3_elems = self._elems[index_now][ind_1order][:, [3, 4, 5]]
+            T6_elems = self._elems[index_now][ind_2order][:, [3, 4, 5, 9, 10, 11]]
+            
         elif surface_ind == 2:
             # Rectangular face: 0(6)1(13)4(9)3(12) -> Q8 elements
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [0, 1, 4, 3]]
-            else:
-                quad_elems = self._elems[index_now][:, [0, 1, 4, 3, 6, 13, 9, 12]]
-            return initialize_surfaces(quad_elems)
+
+            quad_elems = self._elems[index_now][:, [0, 1, 4, 3]]
+
+            quad_elems = self._elems[index_now][:, [0, 1, 4, 3, 6, 13, 9, 12]]
+            
         elif surface_ind == 3:
             # Rectangular face: 1(7)2(14)5(10)4(13) -> Q8 elements
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [1, 2, 5, 4]]
-            else:
-                quad_elems = self._elems[index_now][:, [1, 2, 5, 4, 7, 14, 10, 13]]
-            return initialize_surfaces(quad_elems)
+
+            quad_elems = self._elems[index_now][:, [1, 2, 5, 4]]
+
+            quad_elems = self._elems[index_now][:, [1, 2, 5, 4, 7, 14, 10, 13]]
+            
         elif surface_ind == 4:
             # Rectangular face: 2(8)0(12)3(11)5(14) -> Q8 elements
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [2, 0, 3, 5]]
-            else:
-                quad_elems = self._elems[index_now][:, [2, 0, 3, 5, 8, 12, 11, 14]]
-            return initialize_surfaces(quad_elems)
+            quad_elems = self._elems[index_now][:, [2, 0, 3, 5]]
+
+            quad_elems = self._elems[index_now][:, [2, 0, 3, 5, 8, 12, 11, 14]]
+            
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
+        
+        result = []
+        if T3_elems.shape[0] > 0:
+            result.append(initialize_surfaces(T3_elems))
+        if T6_elems.shape[0] > 0:
+            result.append(initialize_surfaces(T6_elems))
+        return result
     
     def get_2nd_order_point_index_surface(self, surface_ind: int):
         """

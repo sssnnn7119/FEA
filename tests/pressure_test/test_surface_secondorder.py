@@ -64,6 +64,9 @@ elems_2order: FEA.elements.Element_3D = fe.elems['element-sensitivity']
 elems_1order.set_materials(material0)
 elems_2order.set_materials(material0)
 
+elems_2order.initialize(fe)
+elems_2order.get_gaussian_points(fe.nodes)
+
 fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
 

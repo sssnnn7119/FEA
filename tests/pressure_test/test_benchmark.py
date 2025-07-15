@@ -59,15 +59,7 @@ mid_nodes_index = fe.elems['element-0'].get_2nd_order_point_index()
         
 fe.nodes[mid_nodes_index[:, 0]] = (fe.nodes[mid_nodes_index[:, 1]] + fe.nodes[mid_nodes_index[:, 2]]) / 2.0
 
-if fe.elems['element-0'].order == 1:
-    fe.solve(tol_error=0.01)
-else:
-    # fe.elems['element-0'].set_order(1)
-    fe.solve(tol_error=0.01)
-
-    # fe.elems['element-0'].set_order(2)
-    # fe.refine_RGC()
-    # fe.solve(RGC0=fe.RGC, tol_error=0.01)
+fe.solve(tol_error=0.01)
 
 
 print(fe.GC)

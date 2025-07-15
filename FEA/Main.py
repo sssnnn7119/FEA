@@ -1350,8 +1350,7 @@ class FEA_Main():
             surf_ind = surf_index[1]
             for e in self.elems.values():
                 s_now = e.find_surface(surf_ind, elem_ind)
-                if s_now is not None:
-                    surface += (s_now)
+                surface += s_now
         if len(surface) == 0:
             raise ValueError(f"Surface {surf_ind} not found in the model.")
         else:

@@ -323,8 +323,8 @@ class Element_3D(BaseElement):
 
     def get_gaussian_points(self, nodes: torch.Tensor):
         pp = self._get_interpolation_coordinates(self.gaussian_coordinates)
-        shapeFun0 = torch.einsum('ab, gb->ga', self.shape_function[0],
-                                      pp).cpu()
+        shapeFun0 = torch.einsum('ab, gb->ga', self.shape_function[0].cpu(),
+                                      pp)
         gaussian_position = torch.zeros(
             [self._num_gaussian, self._elems.shape[0], 3], device='cpu')
         for i in range(self._elems.shape[1]):
