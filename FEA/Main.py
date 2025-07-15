@@ -419,6 +419,7 @@ class FEA_Main():
         if deltaE > 0:
             dGC = -dGC
             deltaE = -deltaE
+            print('the newton dirction is not the decrease direction')
 
         if torch.isnan(dGC).sum() > 0 or torch.isinf(dGC).sum() > 0:
             dGC = -R
@@ -828,7 +829,7 @@ class FEA_Main():
                                                        R_preconditioned,
                                                        x0,
                                                        tol=1e-4,
-                                                       max_iter=2000)
+                                                       max_iter=1000)
         result = dx.to(R.dtype) / diag
         return result
 
@@ -1120,7 +1121,7 @@ class FEA_Main():
         self._RGC_nameMap[index_now] = name
         self._RGC_size[index_now] = size
 
-        self.RGC.append(torch.randn(size) * 1e-10)
+        self.RGC.append(torch.randn(size) * 1e-2)
         self.RGC_remain_index.append(np.zeros(size, dtype=bool))
 
         return index_now

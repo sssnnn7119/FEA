@@ -188,7 +188,7 @@ class Couple(BaseConstraint):
         Edotzv = torch.einsum('biq,bip->pq', Rdotv[self.indexNodes], Ydot)
 
         Edotzz = torch.einsum('biq,bip->pq', Rdotz[self.indexNodes],
-                              Ydot) - torch.einsum('ai,aipq->pq', Rrest, Ydot2)
+                              Ydot) + torch.einsum('ai,aipq->pq', Rrest, Ydot2)
         # combine the indices and values
         indices = []
         values = []
