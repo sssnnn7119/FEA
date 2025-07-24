@@ -86,3 +86,11 @@ class T6(BaseSurface):
         
         # Pre-load Gaussian points for T6 surface
         self._pre_load_gaussian(pp, fea.nodes)
+
+    @property
+    def surf_elems_circ(self) -> torch.Tensor:
+        """
+        Get the circular elements of the surface.
+        This property returns the element connectivity for T6 surface elements.
+        """
+        return self._elems[:, [0, 3, 1, 4, 2, 5]]

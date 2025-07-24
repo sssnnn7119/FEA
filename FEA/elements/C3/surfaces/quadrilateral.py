@@ -98,3 +98,11 @@ class Q8(BaseSurface):
         
         # Pre-load Gaussian points for Q8 surface
         self._pre_load_gaussian(pp, fea.nodes)
+
+    @property
+    def surf_elems_circ(self) -> torch.Tensor:
+        """
+        Get the circular elements of the surface.
+        This property returns the element connectivity for Q8 surface elements.
+        """
+        return self._elems[:, [0, 4, 1, 5, 2, 6, 3, 7]]

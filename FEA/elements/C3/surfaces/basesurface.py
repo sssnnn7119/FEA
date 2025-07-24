@@ -195,3 +195,13 @@ class BaseSurface():
                 result[:, 3] = 2 * shape_function[:, 7]
 
         return result
+
+
+    @property
+    def surf_elems_circ(self) -> torch.Tensor:
+        """
+        Get the circular elements of the surface.
+        This property should be overridden in subclasses if needed.
+        """
+        return self._elems
+    

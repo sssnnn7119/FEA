@@ -137,11 +137,10 @@ class Couple(BaseConstraint):
         Edotv = Rrest.sum(dim=0)
         Edotz = torch.einsum('bj,bjp->p', Rrest, Ydot)
 
-        R = torch.sparse_coo_tensor(indices=torch.arange(
-            self._fea.RGC_list_indexStart[self.rp_index],
-            self._fea.RGC_list_indexStart[self.rp_index] + 6).unsqueeze(0),
-                                    values=torch.cat([Edotv, Edotz], dim=0),
-                                    size=[self._fea.RGC_list_indexStart[-1]])
+        R = torch.zeros(self._fea.RGC_list_indexStart[-1])
+        start_idx = self._fea.RGC_list_indexStart[self.rp_index]
+        R[start_idx:start_idx+3] = Edotv
+        R[start_idx+3:start_idx+6] = Edotz
         # endregion
 
         # K
