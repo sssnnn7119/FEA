@@ -22,7 +22,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/C3D4.inp')
+fem.Read_INP(current_path + '/C3D4Less.inp')
 
 fe = FEA.from_inp(fem)
 fe.maximum_iteration = 1000
@@ -56,16 +56,12 @@ fe = FEA.elements.convert_to_second_order(fe, ['element-sensitivity'])
 element: FEA.elements.Element_3D = fe.elems['element-sensitivity']
 element.surf_order = torch.ones([element._elems.shape[0], 4], dtype=torch.int8, device='cpu')
 
-for surf_name in surf_name_list:
-    fe.elems['element-sensitivity'] = FEA.elements.set_surface_2order(fe=fe, name_elems='element-sensitivity', name_surface=surf_name)
+
 
 elems_1order: FEA.elements.Element_3D = fe.elems['element-0']
 elems_2order: FEA.elements.Element_3D = fe.elems['element-sensitivity']
 elems_1order.set_materials(material0)
 elems_2order.set_materials(material0)
-
-elems_2order.initialize(fe)
-elems_2order.get_gaussian_points(fe.nodes)
 
 fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
@@ -90,6 +86,17 @@ t1 = time.time()
 
 
 fe.solve(tol_error=0.01)
+
+
+print(fe.GC)
+print(fe.GC.shape)
+print('ok')
+
+for surf_name in surf_name_list:
+    fe.elems['element-sensitivity'] = FEA.elements.set_surface_2order(fe=fe, name_elems='element-sensitivity', name_surface=surf_name)
+
+
+fe.solve(RGC0=fe.RGC, tol_error=0.01)
 
 
 print(fe.GC)

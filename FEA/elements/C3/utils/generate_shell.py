@@ -108,7 +108,7 @@ def calculate_new_nodes(node_idx_map: torch.Tensor, nodes: torch.Tensor, surface
     return new_nodes
 
 def generate_shell_from_surface(
-        fe: FEA_Main, surface_names: list[str], shell_thickness: float, surface_new_name: Optional[list[str]] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
+        fe: FEA_Main, surface_names: str, shell_thickness: float, surface_new_name: Optional[str] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
     """
     Generate shell elements (C3D6) from triangular surface meshes.
     
@@ -118,10 +118,10 @@ def generate_shell_from_surface(
     
     Args:
         fe (FEA.Main.FEA_Main): The FEA model instance containing the surfaces
-        surface_names (str or list): Name(s) of the surfaces to extrude (e.g., 'surface_1_All' 
+        surface_names (str): Name(s) of the surfaces to extrude (e.g., 'surface_1_All' 
                                    or ['surface_1_All', 'surface_2_All'])
         shell_thickness (float): The thickness to extrude the surface by
-        surface_new_name (list[str], optional): New names for the offset surfaces.
+        surface_new_name (str, optional): New names for the offset surfaces.
     Returns:
         tuple: A tuple containing:
             - nodes_new (torch.Tensor): Combined node coordinates (original + new nodes)
@@ -129,35 +129,9 @@ def generate_shell_from_surface(
             - c3d6_indices (torch.Tensor): Indices for the new C3D6 elements
             - offset_surface_sets (dict): Dictionary mapping surface names to offset surface sets
     """
-    # Convert single surface name to list for consistent processing
-    if isinstance(surface_names, str):
-        surface_names = [surface_names]
 
     # Get and combine the triangular elements of all surfaces
-    all_surface_elems = []
-
-    for surface_name in surface_names:
-        surface_elems = [fe.get_surface_elements(surface_name)[0]._elems]
-
-        # Check if surface_elems is a list or a single tensor
-        if isinstance(surface_elems, list):
-            if len(surface_elems) == 0:
-                print(
-                    f"Warning: No surface triangles found for surface {surface_name}, skipping"
-                )
-                continue
-            # Add all elements from this surface
-            all_surface_elems.extend(surface_elems)
-        else:
-            all_surface_elems.append(surface_elems)
-
-    if not all_surface_elems:
-        raise ValueError(
-            "No valid surface triangles found for any of the provided surfaces"
-        )
-
-    # Concatenate all surface triangles from all surfaces
-    surface_elems = torch.cat(all_surface_elems, dim=0)
+    surface_elems = fe.get_surface_elements(surface_names)[0]._elems
 
     # Get the unique node indices from the triangular elements
     surface_node_indices = torch.unique(
@@ -213,36 +187,30 @@ def generate_shell_from_surface(
 
     # Track which wedge elements correspond to each original surface
     start_idx = 0
-    for i in range(len(surface_names)):
+    
+    # Count triangles in this surface
+    num_triangles = surface_elems.shape[0]
 
-        surface_name = surface_names[i]
-        surface_elems = [fe.get_surface_elements(surface_name)[0]._elems]
-        
-        # Count triangles in this surface
-        num_triangles = 0
-        for elem in surface_elems:
-            num_triangles += elem.shape[0]
-        
-        # Create surface set for the offset surface (face index 1 - top triangular face)
-        # The format needed is a list of [element_index, surface_index] pairs
-        offset_surface = []
-        for j in range(num_triangles):
-            elem_index = c3d6_indices[start_idx + j].item()
-            # Surface index 1 corresponds to the top triangular face (nodes 3, 4, 5) in C3D6
-            surf_index = 1
-            offset_surface.append(elem_index)
-        
-        # Store the offset surface set
-        if offset_surface:
-            if surface_new_name is not None:
-                offset_name = surface_new_name[i]
-            else:
-                offset_name = f"{surface_name}_offset"
+    # Create surface set for the offset surface (face index 1 - top triangular face)
+    # The format needed is a list of [element_index, surface_index] pairs
+    offset_surface = []
+    for j in range(num_triangles):
+        elem_index = c3d6_indices[start_idx + j].item()
+        # Surface index 1 corresponds to the top triangular face (nodes 3, 4, 5) in C3D6
+        surf_index = 1
+        offset_surface.append(elem_index)
+    
+    # Store the offset surface set
+    if offset_surface:
+        if surface_new_name is not None:
+            offset_name = surface_new_name
+        else:
+            offset_name = f"{surface_names}_offset"
 
-            offset_surface_sets[offset_name] = [(np.array(offset_surface), 1)]
-        
-        # Update the starting index for the next surface
-        start_idx += num_triangles
+        offset_surface_sets[offset_name] = [(np.array(offset_surface), 1)]
+    
+    # Update the starting index for the next surface
+    start_idx += num_triangles
 
     return nodes_new, c3d6_elements.cpu(), c3d6_indices.cpu(), offset_surface_sets
 

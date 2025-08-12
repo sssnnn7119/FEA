@@ -32,7 +32,7 @@ def fea_inp(inp_name: str):
     # elems_now.surf_order = torch.ones([elems_now._elems.shape[0], 6], dtype=torch.int64) * 1
 
     # elems_now.surf_order[:elems_now._elems.shape[0] // 20] = 2
-    elems_now.surf_order[[0, 1, 2, 3, 4, 5]] = 1
+    # elems_now.surf_order[[0, 1, 2, 3, 4, 5]] = 1
 
     bc_dof = np.where((abs(fe.nodes[:, 2] - 0)
                             < 0.1).cpu().numpy())[0] * 3
