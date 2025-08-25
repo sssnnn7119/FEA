@@ -38,25 +38,18 @@ class Pressure(BaseLoad):
 
     def initialize(self, fea):
         super().initialize(fea)
-        
-        self.surface_element = fea.get_surface_elements(self.surface_name)
+
+        self.surface_element = fea.surface_sets.get_elements(self.surface_name)
 
         _Vdot_indices = []
         _Vdot_2_indices = []
 
         for surf_ind in range(len(self.surface_element)):
             surf_elem = self.surface_element[surf_ind]
-            if not isinstance(self.surface_element[surf_ind], BaseSurface):
-                raise TypeError(f"Surface element {surf_ind} is not a valid BaseSurface instance.")
-            
             if surf_elem._elems.shape[0] == 0:
                 continue
 
-            self.surface_element[surf_ind].initialize(fea)
-            
-
             Vdot_indices = torch.stack([surf_elem._elems*3, surf_elem._elems*3+1, surf_elem._elems*3+2], dim=1).to(torch.int64).to(self._fea.nodes.device)
-
             
             
             Vdot_2_indices = torch.stack([
@@ -78,7 +71,7 @@ class Pressure(BaseLoad):
         self._Vdot_2_indices = torch.cat(_Vdot_2_indices, dim=1)
         
     def get_stiffness(self,
-                RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+                RGC: list[torch.Tensor]):
         node_pos = self._fea.nodes + RGC[0].reshape_as(self._fea.nodes)
 
         # node_pos.requires_grad_()

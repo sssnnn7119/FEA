@@ -13,6 +13,89 @@ from .reference_points import ReferencePoint
 from .solver import linear_solver as _linear_Solver
 from .solver import lbfgs as _lbfgs
 
+class _Surfaces():
+    """
+    Class representing a set of surfaces in the finite element model.
+    """
+
+    def __init__(self):
+        self._surface_dict: dict[str, list[tuple[np.ndarray, int]]] = {}
+        self._surface_elements: dict[str, list[surfaces.BaseSurface]] = {}
+        self._initialized = False
+
+    def initialize(self, fea: "FEA_Main"):
+        """
+        Initialize the surface set before FEA.
+        """
+        self._surface_elements.clear()
+        for name, surface_indices in self._surface_dict.items():
+            element_now = fea.get_surface_elements(name)
+            self._surface_elements[name] = element_now
+
+            # initialize the surface elements
+            for se in element_now:
+                se.initialize(fea)
+                self._initialized = True
+
+    def get_elements(self, name: str) -> list[surfaces.BaseSurface]:
+        """
+        Get the surface elements by their name.
+
+        Args:
+            name (str): The name of the surface.
+
+        Returns:
+            list[surfaces.BaseSurface]: The list of surface elements.
+        """
+        return self._surface_elements.get(name, [])
+
+    def __getitem__(self, key: str):
+        """
+        Get a surface by its name.
+
+        Args:
+            key (str): The name of the surface.
+
+        Returns:
+            list[tuple[np.ndarray, int]]: The surface data.
+        """
+        return self._surface_dict[key]
+
+    def __setitem__(self, key: str, value: list[tuple[np.ndarray, int]]):
+        """
+        Set a surface by its name.
+
+        Args:
+            key (str): The name of the surface.
+            value (list[tuple[np.ndarray, int]]): The surface data.
+        """
+        self._surface_dict[key] = value
+
+        
+
+    def __contains__(self, key: str):
+        """
+        Check if a surface exists by its name.
+
+        Args:
+            key (str): The name of the surface.
+
+        Returns:
+            bool: True if the surface exists, False otherwise.
+        """
+        return key in self._surface_dict
+
+    def keys(self):
+        """
+        Get the keys of the surface set.
+
+        Returns:
+            list[str]: The list of surface names.
+        """
+        return list(self._surface_dict.keys())
+
+
+
 class FEA_Main():
     """
     Main class for Finite Element Analysis (FEA).
@@ -83,7 +166,7 @@ class FEA_Main():
         # initialize sets collections
         self.node_sets: dict[str, np.ndarray] = {}
         self.element_sets: dict[str, np.ndarray] = {}
-        self.surface_sets: dict[str, list[tuple[np.ndarray, int]]] = {}
+        self.surface_sets = _Surfaces()
         """define the surface set of the 3D elements"""
 
         self._RGC_nameMap: dict[int, str]
@@ -135,6 +218,11 @@ class FEA_Main():
         self._iter_now: int = 0
         """
         The iteration of the FEA step
+        """
+
+        self._maximum_step_length = 1e10
+        """
+        The allowable maximum step length for each step.
         """
 
     def initialize(self, RGC0: torch.Tensor = None):
@@ -198,6 +286,10 @@ class FEA_Main():
         # endregion
 
         # region initialize the elements, loads, and constraints
+
+        # initialize the surface elements
+        self.surface_sets.initialize(self)
+
         # initialize the elements
         for e in self.elems.values():
             e.initialize(self)
@@ -251,23 +343,22 @@ class FEA_Main():
             bool: True if the solution converged, False otherwise.
         """
         # initialize the RGC
-        self.initialize(RGC0=RGC0)
-
-        # initialize the iteration
-
         t0 = time.time()
+        self.initialize(RGC0=RGC0)
+        t1 = time.time()
+        print('Initialization complete, time taken: %.2f seconds\n' % (t1 - t0))
         # start the iteration
         result = self._solve_iteration(RGC=self.RGC,
                                          tol_error=tol_error)
         
         self.RGC = self.refine_RGC(self._GC2RGC(self.GC))
-        t1 = time.time()
+        t2 = time.time()
 
         # print the information
-        print('total_iter:%d, total_time:%.2f' % (self._iter_now, t1 - t0))
+        print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
         R = self._assemble_Stiffness_Matrix(RGC = self.RGC)[0]
         print('max_error:%.4e' % (R.abs().max()))
-        print('---' * 4, 'FEA Finished', '---' * 4, '\n')
+        print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
         return result
 
@@ -328,6 +419,8 @@ class FEA_Main():
             R_values.append(Ra_values)
             R_indices.append(Ra_indice)
         t1 = time.time()
+
+        ff = []
         for f in self.loads.values():
             Rf_indice, Rf_values, Kf_indice, Kf_value = f.get_stiffness(
                 RGC=RGC)
@@ -335,6 +428,8 @@ class FEA_Main():
             K_indices.append(Kf_indice)
             R_values.append(-Rf_values)
             R_indices.append(Rf_indice)
+
+            ff.append(torch.zeros(self.RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
         t2 = time.time()
         # endregion
 
@@ -409,9 +504,9 @@ class FEA_Main():
                      R: torch.Tensor,
                      energy0: float, *args, **kwargs):
         # line search
-        alpha = 1
+        alpha = 1.0
         beta = float('inf')
-        c1 = 0.02
+        c1 = 0.4
         c2 = 0.4
         dGC0 = dGC.clone()
         deltaE = (dGC * R).sum()
@@ -436,7 +531,9 @@ class FEA_Main():
                 RGC=self._GC2RGC(GCnew))
 
             if torch.isnan(energy_new) or torch.isinf(
-                    energy_new) or energy_new > energy0 + c1 * deltaE * alpha:
+                    energy_new) or \
+                energy_new > energy0 + c1 * deltaE * alpha or \
+                (alpha * dGC).abs().max() > self._maximum_step_length:
                 alpha = 0.5 * alpha
                 if alpha < 1e-12:
                     alpha = 0.0
@@ -572,6 +669,8 @@ class FEA_Main():
 
             # update the RGC
             RGC = self._GC2RGC(GC)
+
+            # self.show_surface(nodes=self.nodes+RGC[0])
 
             # update the energy
             energynew = self._total_Potential_Energy(
@@ -810,7 +909,7 @@ class FEA_Main():
         else:
             self.__low_alpha_count = 0
 
-        if self.__low_alpha_count > 3 or R_preconditioned.abs().max() < 1e-3:
+        if self.__low_alpha_count > 3 or R_preconditioned.abs().max() < 1e-3 or K_values_preconditioned.device.type == 'cpu':
             dx = _linear_Solver.pypardiso_solver(K_indices,
                                                  K_values_preconditioned,
                                                  R_preconditioned)
@@ -1406,7 +1505,7 @@ class FEA_Main():
 
     # region for visualization
 
-    def show_surface(self, name: list[str] = None, show: bool = True):
+    def show_surface(self, nodes: torch.Tensor = None, name: list[str] = None, show: bool = True):
         """
         Show the surface of the FEA model.
 
@@ -1418,27 +1517,21 @@ class FEA_Main():
         from mayavi import mlab
         if name is None:
             name = list(self.surface_sets.keys())
-
+        if nodes is None:
+            nodes = self.nodes
         for n in name:
             if n in self.surface_sets:
                 surface = self.get_surface_elements(n)
 
-                mlab.triangular_mesh(self.nodes[:, 0].cpu().numpy(),
-                                     self.nodes[:, 1].cpu().numpy(),
-                                     self.nodes[:, 2].cpu().numpy(),
-                                     surface[0]._elems[:3].cpu().numpy(),
-                                     opacity=0.5)
-                
-
-                surface = mlab.pipeline.surface(
-                    mlab.pipeline.triangular_mesh_source(
-                        self.nodes[:, 0].cpu().numpy(),
-                        self.nodes[:, 1].cpu().numpy(),
-                        self.nodes[:, 2].cpu().numpy(), surface),
-                    color=(1.0 / 255, 1.0 / 255, 1.0 / 255),
-                    opacity=1)
-                surface.actor.property.representation = 'wireframe'
-
+                mesh = mlab.triangular_mesh(nodes[:, 0].cpu().numpy(),
+                                     nodes[:, 1].cpu().numpy(),
+                                     nodes[:, 2].cpu().numpy(),
+                                     surface[0]._elems[:, :3].cpu().numpy(),
+                                     opacity=1.0)
+                mesh.actor.property.edge_visibility = True
+                mesh.actor.property.line_width = 1.0
+                mesh.actor.property.edge_color = (0, 0, 0)  # Black edges
+        
         if show:
             mlab.show()
 

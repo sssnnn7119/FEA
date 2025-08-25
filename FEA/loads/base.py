@@ -39,10 +39,21 @@ class BaseLoad(BaseObj):
     
     def get_stiffness(self,
                 RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        
-        raise NotImplementedError("get_stiffness method not implemented")
+        """Get the stiffness matrix and force vector for the self-contact load.
 
-    def get_potential_energy(self, RGC: torch.Tensor) -> torch.Tensor:
+        Args:
+            RGC (list[torch.Tensor]): The global coordinates of the nodes.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The stiffness matrix and force vector for the self-contact load.
+                - F_indices: The indices of the force vector.
+                - F_values: The values of the force vector.
+                - K_indices: The indices of the stiffness matrix.
+                - K_values: The values of the stiffness matrix.
+        """
+
+    def get_potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
+        """Get the potential energy for the self-contact load."""
         raise NotImplementedError("get_potential_energy method not implemented")
     
     @staticmethod

@@ -50,5 +50,10 @@ def set_surface_2order(fe: FEA.FEA_Main, name_elems: str, name_surface: str):
     for surf_ind in range(len(surface)):
         elem_ind_now = torch.where(torch.isin(element._elems_index, torch.from_numpy(surface[surf_ind][0])))[0]
         element.surf_order[elem_ind_now, surface[surf_ind][1]] = 2
-    element.set_materials(element0.materials)
+
+    try:
+        element.set_materials(element0.materials)
+    except:
+        pass
+    
     return element

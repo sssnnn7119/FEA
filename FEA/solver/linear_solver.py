@@ -47,10 +47,10 @@ def pypardiso_solver(A_indices: torch.Tensor, A_values: torch.Tensor,
     import scipy.sparse as sp
 
     A_sp = sp.coo_matrix(
-        (A_values.cpu().numpy(), (A_indices[0].cpu().numpy(),
+        (A_values.detach().cpu().numpy(), (A_indices[0].cpu().numpy(),
                                     A_indices[1].cpu().numpy()))).tocsr()
 
-    b_np = b.cpu().numpy()
+    b_np = b.detach().cpu().numpy()
     x = pypardiso.spsolve(A_sp, b_np)
 
     return torch.from_numpy(x).to(b.dtype).to(b.device)

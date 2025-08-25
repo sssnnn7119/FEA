@@ -397,7 +397,7 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
     for name, elem_set in fe.element_sets.items():
         new_fe.add_element_set(name, elem_set)
     
-    for name, surf_set in fe.surface_sets.items():
+    for name, surf_set in fe.surface_sets._surface_dict.items():
         new_fe.add_surface_set(name, surf_set)
     
     # Copy reference points

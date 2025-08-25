@@ -197,6 +197,36 @@ class BaseSurface():
         return result
 
 
+    def gaussian_points_position(self, nodes: torch.Tensor) -> torch.Tensor:
+        """
+        Get the positions of the Gaussian points on the surface.
+        Returns:
+            torch.Tensor: The positions of the Gaussian points.
+        """
+        gaussian_points = torch.zeros([self._num_gaussian, self._elems.shape[0], 3],
+                dtype=self._fea.nodes.dtype, device=self._fea.nodes.device)
+            
+        for a in range(self.num_nodes_per_elem):
+            gaussian_points += torch.einsum('g, ei->gei', self.shape_function_gaussian[0][:, a],
+                                        nodes[self._elems[:, a]])
+            
+        return gaussian_points
+
+    def get_gaussian_normal(self, nodes: torch.Tensor) -> torch.Tensor:
+        """
+        Get the normals of the Gaussian points on the surface.
+        Returns:
+            torch.Tensor: The normals of the Gaussian points.
+        """
+
+        rdu = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 2], dtype=self._fea.nodes.dtype, device=self._fea.nodes.device)
+
+        for a in range(self.num_nodes_per_elem):
+            rdu += torch.einsum('gm, ei->geim', self.shape_function_gaussian[1][:, :, a],
+                                 nodes[self._elems[:, a]])
+        gaussian_normals = torch.cross(rdu[:, :, :, 0], rdu[:, :, :, 1], dim=-1)
+        return gaussian_normals
+
     @property
     def surf_elems_circ(self) -> torch.Tensor:
         """
