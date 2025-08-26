@@ -11,12 +11,14 @@ class ContactSelf(BaseLoad):
     """
 
     def __init__(self, surface_name: str, 
-                 penalty_distance: float = 0.5,
-                 penalty_threshold: float = 1.5,
-                 penalty_degree: int = 7,
-                 ignore_min_distance: float = 2., 
-                 ignore_mid_distance: float = 2.,
-                 ignore_max_distance: float = 5.,
+                 penalty_distance_g: float = 0.2,
+                 penalty_factor_g: float = 0.8,
+                 penalty_degree: int = 9,
+                 penalty_threshold_h: float = 1.5,
+                 penalty_ratio_h: float = 0.8,
+                 penalty_start_f: int = -0.6,
+                 penalty_end_f: float = -0.9,
+                 ignore_max_distance: float = 6.,
                  ignore_min_normal: float = 1.2,
                  ignore_max_normal: float = 1.8):
         """
@@ -31,10 +33,6 @@ class ContactSelf(BaseLoad):
         self.surface_name = surface_name
         """The name of the surface to apply the load on."""
 
-        self._ignore_min_distance = ignore_min_distance
-        """The minimum initial distance to ignore for self-contact."""
-        self._ignore_mid_distance = ignore_mid_distance
-        """The middle initial distance to ignore for self-contact."""
         self._ignore_max_distance = ignore_max_distance
         """The maximum initial distance to ignore for self-contact."""
 
@@ -43,11 +41,23 @@ class ContactSelf(BaseLoad):
         self._ignore_max_normal = ignore_max_normal
         """The maximum initial normal distance to ignore for self-contact."""
 
-        self._penalty_distance = penalty_distance
+        self._penalty_distance_g = penalty_distance_g
         """The penalty distance for self-contact. When the distance between nodes is less than this value, a penalty is applied."""
 
-        self._penalty_threshold = penalty_threshold
+        self._penalty_factor_g = penalty_factor_g
+        """The penalty factor g for self-contact."""
+
+        self._penalty_threshold_h = penalty_threshold_h
         """The penalty threshold for self-contact."""
+
+        self._penalty_ratio_h = penalty_ratio_h
+        """The penalty ratio for self-contact."""
+
+        self._penalty_start_f = penalty_start_f
+        """The penalty degree for the angle factor f. The degree of the penalty function."""
+
+        self._penalty_end_f = penalty_end_f
+        """The penalty threshold for the angle factor f."""
 
         self._penalty_degree = penalty_degree
         """The penalty degree for self-contact. The degree of the penalty function."""
@@ -117,14 +127,7 @@ class ContactSelf(BaseLoad):
 
         self._ratio = self._ratio * self._gaussian_weights_int[:, None, self._point_pairs[0]] * self._gaussian_weights_int[None, :, self._point_pairs[1]]
 
-        # from mayavi import mlab
 
-        # mlab.figure()
-        # ind = list(range(len(self._point_pairs[0])))
-        # mlab.triangular_mesh(self._fea.nodes[:, 0], self._fea.nodes[:, 1], self._fea.nodes[:, 2], self.surface_element._elems.cpu().numpy(), color=(0.5, 0.5, 0.5))
-        # mlab.points3d(self._gaussian_points[self._point_pairs[0][ind], 0].cpu(), self._gaussian_points[self._point_pairs[0][ind], 1].cpu(), self._gaussian_points[self._point_pairs[0][ind], 2].cpu(), color=(1, 0, 0))
-        # mlab.points3d(self._gaussian_points[self._point_pairs[1][ind], 0].cpu(), self._gaussian_points[self._point_pairs[1][ind], 1].cpu(), self._gaussian_points[self._point_pairs[1][ind], 2].cpu(), color=(0, 0, 1))
-        # mlab.show()
 
         # get the partial derivative indices
         tri_ind = self._point_pairs.cpu()
@@ -134,40 +137,11 @@ class ContactSelf(BaseLoad):
 
         pdU_indices = self.surface_element._elems[tri_ind].to(torch.int64)
         pdU_indices = torch.stack([pdU_indices*3, pdU_indices*3+1, pdU_indices*3+2], dim=-1)
-        self._pdU_indices = pdU_indices.flatten().to(self._fea.nodes.device)
+        self._pdU_indices = pdU_indices.to(self._fea.nodes.device)
 
-        pdU_2_indices00 = torch.stack([
-            self.surface_element._elems[tri_ind[0]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
-            self.surface_element._elems[tri_ind[0]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
-        ]).reshape([4, -1])
 
-        pdU_2_indices01 = torch.stack([
-            self.surface_element._elems[tri_ind[0]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
-            self.surface_element._elems[tri_ind[1]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
-        ]).reshape([4, -1])
-
-        pdU_2_indices10 = torch.stack([
-            self.surface_element._elems[tri_ind[1]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
-            self.surface_element._elems[tri_ind[0]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
-        ]).reshape([4, -1])
-
-        pdU_2_indices11 = torch.stack([
-            self.surface_element._elems[tri_ind[1]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
-            self.surface_element._elems[tri_ind[1]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
-            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
-        ]).reshape([4, -1])
-
-        pdU_2_indices_ = torch.cat([pdU_2_indices00, pdU_2_indices01, pdU_2_indices10, pdU_2_indices11], dim=1)
-        pdU_2_indices = torch.stack([pdU_2_indices_[0]*3+pdU_2_indices_[1], pdU_2_indices_[2]*3+pdU_2_indices_[3]], dim=0).to(self._fea.nodes.device)
         
-        self._pdU_2_indices = pdU_2_indices.to(self._fea.nodes.device)
+        # self._pdU_2_indices = pdU_2_indices.to(self._fea.nodes.device)
 
     def _overlap_check(self, dy: torch.Tensor, dn: torch.Tensor):
         distance = dy.norm(dim=-1)
@@ -197,16 +171,20 @@ class ContactSelf(BaseLoad):
         #     return torch.nan
 
         # distance_now = -(dn*dy).sum(dim=-1)
-        f_degree = 4
-        f_threshold = -0.7
-        f = (f_threshold-ndot)**f_degree
-        f[ndot > f_threshold] = 0
+        MM = (self._penalty_start_f - ndot) / (self._penalty_start_f-self._penalty_end_f)
+        MM = MM.clamp(0, 1)
+        f = MM**3 * (6*MM**2 - 15*MM + 10)
         
-        D = self._penalty_distance + (dn * dy).sum(dim=-1)
+        D = self._penalty_distance_g + (dn * dy).sum(dim=-1)
         D[D < 0] = 0
-        g = (D / self._penalty_threshold) ** self._penalty_degree
+        g = (D / self._penalty_factor_g) ** self._penalty_degree
 
-        penalty = g * f
+
+        L = dy.norm(dim=-1)
+        T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
+        T = T.clamp(0, 1)
+        h = T**3 * (6*T**2 - 15*T + 10)
+        penalty = g * f * h
 
         # Compute the potential energy
         potential_energy = penalty.sum()
@@ -221,7 +199,7 @@ class ContactSelf(BaseLoad):
         Y = self._fea.nodes + U
 
         num_g = self.surface_element._num_gaussian
-        num_p = self._point_pairs.shape[1]
+        
         num_e = self.surface_element._elems.shape[0]
         num_n = self.surface_element.num_nodes_per_elem
 
@@ -233,6 +211,65 @@ class ContactSelf(BaseLoad):
 
         nnorm = N.norm(dim=-1)
         n = N / nnorm[:, :, None]
+
+        num_p = self._point_pairs.shape[1]
+        E = torch.zeros([num_g, num_p, 2, 2, 3], device=U.device) # e1/e2, y/n, 0/1/2
+
+        E[:, :, 0, 0] = y[:, self._point_pairs[0]]
+        E[:, :, 1, 0] = y[:, self._point_pairs[1]]
+        E[:, :, 0, 1] = n[:, self._point_pairs[0]]
+        E[:, :, 1, 1] = n[:, self._point_pairs[1]]
+
+        dy = E[:, None, :, 0, 0, :] - E[None, :, :, 1, 0, :]
+        dn = E[:, None, :, 0, 1, :] - E[None, :, :, 1, 1, :]
+
+        M = (E[:, None, :, 0, 1, :] * E[None, :, :, 1, 1, :]).sum(dim=-1)
+        MM = (self._penalty_start_f - M) / (self._penalty_start_f-self._penalty_end_f)
+        MM = MM.clamp(0, 1)
+        f = MM**3 * (6*MM**2 - 15*MM + 10)
+
+        D = self._penalty_distance_g + (dn * dy).sum(dim=-1)
+        D[D < 0] = 0
+        g = (D / self._penalty_factor_g) ** self._penalty_degree
+        L = dy.norm(dim=-1)
+        T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
+        T = T.clamp(0, 1)
+        h = T**3 * (6*T**2 - 15*T + 10)
+
+        penalty = g * f * h
+
+        index_remain = torch.where(penalty.sum([0,1])>1e-12)[0]
+
+        point_pairs = self._point_pairs[:, index_remain]
+        num_p = index_remain.shape[0]
+        D = D[:, :, index_remain]
+        M = M[:, :, index_remain]
+        MM = MM[:, :, index_remain]
+        E = E[:, index_remain]
+        T = T[:, :, index_remain]
+        L = L[:, :, index_remain]
+        dy = dy[:, :, index_remain]
+        dn = dn[:, :, index_remain]
+        f = f[:, :, index_remain]
+        g = g[:, :, index_remain]
+        h = h[:, :, index_remain]
+        
+        if index_remain.shape[0] > 0:
+            print('  Contact pairs: ', index_remain.shape[0], '\t surface name: ', self.surface_name)
+            # from mayavi import mlab
+            # ind = 1100
+            # point_pairs_show = point_pairs
+            # mlab.figure()
+            # mlab.triangular_mesh((self._fea.nodes+RGC[0]).cpu()[:, 0], (self._fea.nodes+RGC[0]).cpu()[:, 1], (self._fea.nodes+RGC[0]).cpu()[:, 2], self.surface_element._elems.cpu().numpy(), color=(0.5, 0.5, 0.5))
+            # mlab.points3d(y[0][point_pairs_show[0], 0].cpu(), y[0][point_pairs_show[0], 1].cpu(), y[0][point_pairs_show[0], 2].cpu(), color=(1, 0, 0), scale_factor = 0.2)
+            # mlab.points3d(y[0][point_pairs_show[1], 0].cpu(), y[0][point_pairs_show[1], 1].cpu(), y[0][point_pairs_show[1], 2].cpu(), color=(0, 0, 1), scale_factor = 0.2)
+
+            # mlab.quiver3d(y[0][point_pairs_show[0], 0].cpu(), y[0][point_pairs_show[0], 1].cpu(), y[0][point_pairs_show[0], 2].cpu(), n[0][point_pairs_show[0], 0].cpu(), n[0][point_pairs_show[0], 1].cpu(), n[0][point_pairs_show[0], 2].cpu(), scale_factor=10.)
+            # mlab.quiver3d(y[0][point_pairs_show[1], 0].cpu(), y[0][point_pairs_show[1], 1].cpu(), y[0][point_pairs_show[1], 2].cpu(), n[0][point_pairs_show[1], 0].cpu(), n[0][point_pairs_show[1], 1].cpu(), n[0][point_pairs_show[1], 2].cpu(), scale_factor=10.)
+            # mlab.show()
+
+        # Compute the potential energy
+        potential_energy = penalty.sum()
 
         ndN = torch.einsum('ij, ge->geij', torch.eye(3), 1/nnorm) + \
             torch.einsum('gei, gej, ge->geij', n, n, -1/nnorm)
@@ -270,37 +307,8 @@ class ContactSelf(BaseLoad):
         edUe_2 = torch.zeros([num_g, num_e, 2, 3, num_n, 3, num_n, 3])
         edUe_2[:, :, 1] = ndUe_2
 
-        E = torch.zeros([num_g, num_p, 2, 2, 3], device=U.device) # e1/e2, y/n, 0/1/2
-
-        E[:, :, 0, 0] = y[:, self._point_pairs[0]]
-        E[:, :, 1, 0] = y[:, self._point_pairs[1]]
-        E[:, :, 0, 1] = n[:, self._point_pairs[0]]
-        E[:, :, 1, 1] = n[:, self._point_pairs[1]]
-
-        dy = E[:, None, :, 0, 0, :] - E[None, :, :, 1, 0, :]
-        dn = E[:, None, :, 0, 1, :] - E[None, :, :, 1, 1, :]
-
-        M = (E[:, None, :, 0, 1, :] * E[None, :, :, 1, 1, :]).sum(dim=-1)
-
-        f_degree = 4
-        f_threshold = -0.7
-        f = (f_threshold-M)**f_degree
-        f[M > f_threshold] = 0
-
-        D = self._penalty_distance + (dn * dy).sum(dim=-1)
-        D[D < 0] = 0
-        g = (D / self._penalty_threshold) ** self._penalty_degree
-
-        penalty = g * f
-
-        # Compute the potential energy
-        potential_energy = penalty.sum()
-
-        gdD = self._penalty_degree / self._penalty_threshold * (D / self._penalty_threshold) ** (self._penalty_degree-1)
-        gdD[D <= 0] = 0
-
-        gdD_2 = self._penalty_degree * (self._penalty_degree - 1) / self._penalty_threshold ** 2 * (D / self._penalty_threshold) ** (self._penalty_degree - 2)
-        gdD_2[D <= 0] = 0
+        gdD = self._penalty_degree / self._penalty_factor_g * (D / self._penalty_factor_g) ** (self._penalty_degree-1)
+        gdD_2 = self._penalty_degree * (self._penalty_degree - 1) / self._penalty_factor_g ** 2 * (D / self._penalty_factor_g) ** (self._penalty_degree - 2)
 
         gdE = torch.zeros([num_g, num_g, num_p, 2, 2, 3])
         gdE[:, :, :, 0, 0, :] = torch.einsum('gGp, gGpi->gGpi', gdD, dn)
@@ -334,12 +342,15 @@ class ContactSelf(BaseLoad):
         gdE_2[:, :, :, 0, 1, :, 1, 1, :] = -temp
         gdE_2[:, :, :, 1, 1, :, 1, 1, :] = temp
 
-        fdM = -f_degree * (f_threshold - M) ** (f_degree - 1)
-        fdM[M > f_threshold] = 0
-
-        fdM_2 = f_degree * (f_degree - 1) * (f_threshold - M) ** (f_degree - 2)
-        fdM_2[M > f_threshold] = 0
-
+        # MM = (self._penalty_start_f - M) / (self._penalty_start_f-self._penalty_end_f)
+        # MM = MM.clamp(0, 1)
+        # f = MM**3 * (6*MM**2 - 15*MM + 10)
+        fdM = -30*MM**2*(MM-1)**2 / (self._penalty_start_f-self._penalty_end_f)
+        fdM_2 = 60*MM*(MM-1)*(2*MM-1) / (self._penalty_start_f-self._penalty_end_f)**2
+        fdM[MM>=1] = 0 
+        fdM[MM<=0] = 0
+        fdM_2[MM>=1] = 0 
+        fdM_2[MM<=0] = 0
         # M = (E[:, None, :, 0, 1, :] * E[None, :, :, 1, 1, :]).sum(dim=-1)
 
         fdE = torch.zeros([num_g, num_g, num_p, 2, 2, 3])
@@ -354,46 +365,115 @@ class ContactSelf(BaseLoad):
         fdE_2[:, :, :, 1, 1, :, 0, 1, :] = torch.einsum('gGp, ij->gGpij', fdM, torch.eye(3)) + \
         torch.einsum('gGp, gGpi, gGpj->gGpij', fdM_2, E[:, None, :, 0, 1, :], E[:, None, :, 1, 1, :])
 
-        pdE = torch.einsum('gGpmxi, gGp->gGpmxi', fdE, g) + \
-            torch.einsum('gGp, gGpmxi->gGpmxi', f, gdE)
+        hdE = torch.zeros([num_g, num_g, num_p, 2, 2, 3])
 
-        pdE_2 = torch.einsum('gGpmxinyj, gGp->gGpmxinyj', fdE_2, g) + \
-                torch.einsum('gGpmxi, gGpnyj->gGpmxinyj', fdE, gdE) + \
+        # L = dy.norm(dim=-1)
+        # T = (self._penalty_distance - L) / (0.5 * self._penalty_distance)
+        # T = T.clamp(0, 1)
+        # h = T**3 * (6*T**2 - 15*T + 10)
+        Lddy = torch.einsum('gGpi, gGp->gGpi', dy, 1/L)
+        Lddy_2 = torch.einsum('ij, gGp->gGpij', torch.eye(3), 1/L) + torch.einsum('gGpi, gGpj, gGp->gGpij', dy, Lddy, -1/L**2)
+        hdL = -30*T**2*(T-1)**2 / (self._penalty_ratio_h * self._penalty_threshold_h)
+        hdL_2 = 60*T*(T-1)*(2*T-1) / (self._penalty_ratio_h * self._penalty_threshold_h)**2
+        hdL[T>=1] = 0
+        hdL[T<=0] = 0
+        hdL_2[T>=1] = 0
+        hdL_2[T<=0] = 0
+        hdE[:, :, :, 0, 0, :] = torch.einsum('gGp, gGpi->gGpi', hdL, Lddy)
+        hdE[:, :, :, 1, 0, :] = -hdE[:, :, :, 0, 0, :]
+
+        hdE_2 = torch.zeros([num_g, num_g, num_p, 2, 2, 3, 2, 2, 3])
+        tmp = torch.einsum('gGp, gGpi, gGpj->gGpij', hdL_2, Lddy, Lddy) + \
+                torch.einsum('gGp, gGpij->gGpij', hdL, Lddy_2)
+        hdE_2[:, :, :, 0, 0, :, 0, 0, :] = tmp
+        hdE_2[:, :, :, 0, 0, :, 1, 0, :] = -tmp
+        hdE_2[:, :, :, 1, 0, :, 0, 0, :] = -tmp
+        hdE_2[:, :, :, 1, 0, :, 1, 0, :] = tmp
+
+        pdE = torch.einsum('gGpmxi, gGp, gGp->gGpmxi', fdE, g, h) + \
+            torch.einsum('gGp, gGpmxi, gGp->gGpmxi', f, gdE, h) + \
+            torch.einsum('gGp, gGp, gGpmxi->gGpmxi', f, g, hdE)
+
+        pdE_2 = torch.einsum('gGpmxinyj, gGp, gGp->gGpmxinyj', fdE_2, g, h) + \
+                torch.einsum('gGpmxi, gGpnyj, gGp->gGpmxinyj', fdE, gdE, h) + \
+                torch.einsum('gGpmxi, gGp, gGpnyj->gGpmxinyj', fdE, g, hdE) + \
                 \
-                torch.einsum('gGpnyj, gGpmxi->gGpmxinyj', fdE, gdE) +\
-                torch.einsum('gGp, gGpmxinyj->gGpmxinyj', f, gdE_2)
+                torch.einsum('gGpnyj, gGpmxi, gGp->gGpmxinyj', fdE, gdE, h) +\
+                torch.einsum('gGp, gGpmxinyj, gGp->gGpmxinyj', f, gdE_2, h) +\
+                torch.einsum('gGp, gGpmxi, gGpnyj->gGpmxinyj', f, gdE, hdE) +\
+                \
+                torch.einsum('gGpnyj, gGp, gGpmxi->gGpmxinyj', fdE, g, hdE)+\
+                torch.einsum('gGp, gGpnyj, gGpmxi->gGpmxinyj', f, gdE, hdE)+\
+                torch.einsum('gGp, gGp, gGpmxinyj->gGpmxinyj', f, g, hdE_2)
+        
  
         # pdUe = torch.zeros([num_e, num_n, 3])
         pdEsum0 = pdE.sum(0)
         pdEsum1 = pdE.sum(1)
-        pdUe_values0 = torch.einsum('gpxi, gpxial->pal', pdEsum1[:, :, 0], edUe[:, self._point_pairs[0]])
-        pdUe_values1 = torch.einsum('gpxi, gpxial->pal', pdEsum0[:, :, 1], edUe[:, self._point_pairs[1]])
+        pdUe_values0 = torch.einsum('gpxi, gpxial->pal', pdEsum1[:, :, 0], edUe[:, point_pairs[0]])
+        pdUe_values1 = torch.einsum('gpxi, gpxial->pal', pdEsum0[:, :, 1], edUe[:, point_pairs[1]])
 
-        # for i in range(self._point_pairs.shape[1]):
-        #     pdUe[self._point_pairs[0, i]] += pdUe_values0[i]
-        #     pdUe[self._point_pairs[1, i]] += pdUe_values1[i]
+        # for i in range(point_pairs.shape[1]):
+        #     pdUe[point_pairs[0, i]] += pdUe_values0[i]
+        #     pdUe[point_pairs[1, i]] += pdUe_values1[i]
 
         pdU_values = torch.stack([pdUe_values0, pdUe_values1], dim=0)
         
 
         # pdU = torch.zeros_like(Y).flatten().scatter_add_(0, pdU_indices.flatten(), pdU_values.flatten()).reshape([-1, 3])
 
-        pdUe_2_values00 = torch.einsum('gpxiyj, gpxial, gpyjbL->palbL', pdE_2.sum(1)[:, :, 0, :, :, 0], edUe[:, self._point_pairs[0]], edUe[:, self._point_pairs[0]]) + \
-                            torch.einsum('gpxi, gpxialbL->palbL', pdEsum1[:, :, 0], edUe_2[:, self._point_pairs[0]])
+        pdUe_2_values00 = torch.einsum('gpxiyj, gpxial, gpyjbL->palbL', pdE_2.sum(1)[:, :, 0, :, :, 0], edUe[:, point_pairs[0]], edUe[:, point_pairs[0]]) + \
+                            torch.einsum('gpxi, gpxialbL->palbL', pdEsum1[:, :, 0], edUe_2[:, point_pairs[0]])
         
-        pdUe_2_values01 = torch.einsum('gGpxiyj, gpxial, GpyjbL->palbL', pdE_2[:, :, :, 0, :, :, 1], edUe[:, self._point_pairs[0]], edUe[:, self._point_pairs[1]])
+        pdUe_2_values01 = torch.einsum('gGpxiyj, gpxial, GpyjbL->palbL', pdE_2[:, :, :, 0, :, :, 1], edUe[:, point_pairs[0]], edUe[:, point_pairs[1]])
 
-        pdUe_2_values10 = torch.einsum('gGpxiyj, Gpxial, gpyjbL->palbL', pdE_2[:, :, :, 1, :, :, 0], edUe[:, self._point_pairs[1]], edUe[:, self._point_pairs[0]])
+        pdUe_2_values10 = torch.einsum('gGpxiyj, Gpxial, gpyjbL->palbL', pdE_2[:, :, :, 1, :, :, 0], edUe[:, point_pairs[1]], edUe[:, point_pairs[0]])
         
-        pdUe_2_values11 = torch.einsum('gpxiyj, gpxial, gpyjbL->palbL', pdE_2.sum(0)[:, :, 1, :, :, 1], edUe[:, self._point_pairs[1]], edUe[:, self._point_pairs[1]]) + \
-                            torch.einsum('gpxi, gpxialbL->palbL', pdEsum0[:, :, 1], edUe_2[:, self._point_pairs[1]])
+        pdUe_2_values11 = torch.einsum('gpxiyj, gpxial, gpyjbL->palbL', pdE_2.sum(0)[:, :, 1, :, :, 1], edUe[:, point_pairs[1]], edUe[:, point_pairs[1]]) + \
+                            torch.einsum('gpxi, gpxialbL->palbL', pdEsum0[:, :, 1], edUe_2[:, point_pairs[1]])
 
         pdU_2_values = torch.stack([pdUe_2_values00, pdUe_2_values01, pdUe_2_values10, pdUe_2_values11], dim=0)
 
 
         # pdU_2 = torch.sparse_coo_tensor(pdU_2_indices, pdU_2_values.flatten(), size=Y.shape*2)
+        tri_ind = point_pairs.cpu()
 
-        return self._pdU_indices, -pdU_values.flatten(), self._pdU_2_indices, -pdU_2_values.flatten()
+        pdU_indices = self.surface_element._elems[tri_ind].to(torch.int64)
+        pdU_indices = torch.stack([pdU_indices*3, pdU_indices*3+1, pdU_indices*3+2], dim=-1)
+        pdU_indices = pdU_indices.to(self._fea.nodes.device)
+
+        pdU_2_indices00 = torch.stack([
+            self.surface_element._elems[tri_ind[0]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
+            self.surface_element._elems[tri_ind[0]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
+        ])
+
+        pdU_2_indices01 = torch.stack([
+            self.surface_element._elems[tri_ind[0]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
+            self.surface_element._elems[tri_ind[1]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
+        ])
+
+        pdU_2_indices10 = torch.stack([
+            self.surface_element._elems[tri_ind[1]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
+            self.surface_element._elems[tri_ind[0]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
+        ])
+
+        pdU_2_indices11 = torch.stack([
+            self.surface_element._elems[tri_ind[1]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 3, 1, 1]).repeat([num_p, num_n, 1, num_n, 3]),
+            self.surface_element._elems[tri_ind[1]].reshape([num_p, 1, 1, num_n, 1]).repeat([1, num_n, 3, 1, 3]),
+            torch.arange(3, device=tri_ind.device).reshape([1, 1, 1, 1, 3]).repeat([num_p, num_n, 3, num_n, 1]),
+        ])
+
+        pdU_2_indices_ = torch.stack([pdU_2_indices00, pdU_2_indices01, pdU_2_indices10, pdU_2_indices11], dim=1)
+        pdU_2_indices = torch.stack([pdU_2_indices_[0]*3+pdU_2_indices_[1], pdU_2_indices_[2]*3+pdU_2_indices_[3]], dim=0).to(self._fea.nodes.device)
+
+        return pdU_indices.flatten(), -pdU_values.flatten(), pdU_2_indices.reshape([2, -1]), -pdU_2_values.flatten()
 
     def _ratio_c_func(self, dx: torch.Tensor):
         """

@@ -30,10 +30,14 @@ fe = FEA.from_inp(fem)
 
 # FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
-fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
+fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.08),
                 name='pressure-1')
-# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance=10, penalty_threshold=0.5))
+# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
 fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_1_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_2_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_3_All'))
+
 bc_dof = np.array(
     list(fem.part['final_model'].sets_nodes['surface_0_Bottom'])) * 3
 bc_dof = np.concatenate([bc_dof, bc_dof + 1, bc_dof + 2])
@@ -49,7 +53,7 @@ indexNodes = np.where((abs(fe.nodes[:, 2] - 70)
 #     Constraints.Couple(
 #         indexNodes=indexNodes,
 #         rp_index=2))
-# fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
+fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
 
 
 

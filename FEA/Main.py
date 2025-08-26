@@ -71,7 +71,7 @@ class _Surfaces():
         """
         self._surface_dict[key] = value
 
-        
+
 
     def __contains__(self, key: str):
         """
@@ -705,7 +705,7 @@ class FEA_Main():
                     "{:^15.2f}".format(t4 - t3) + \
                     "{:^15.2f}".format(t4 - t1))
             
-            if dGC.abs().max() < tol_error:
+            if dGC.abs().max() < tol_error and R.abs().max() < tol_error:
                 break
         self.GC = GC
         return True
@@ -896,7 +896,7 @@ class FEA_Main():
         # precondition for the linear equation
         index = torch.where(K_indices[0] == K_indices[1])[0]
         diag = torch.zeros_like(R).scatter_add(0, K_indices[0, index],
-                                               K_values[index]).sqrt()
+                                               K_values[index]).abs().sqrt()
         diag[diag==0] = 1.0  # Avoid division by zero
         K_values_preconditioned = K_values / diag[K_indices[0]]
         K_values_preconditioned = K_values_preconditioned / diag[K_indices[1]]
