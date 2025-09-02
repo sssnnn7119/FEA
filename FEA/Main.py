@@ -331,6 +331,25 @@ class FEA_Main():
 
         # endregion
 
+    def reinitialize(self, RGC: list[torch.Tensor]):
+        """
+        Reinitializes the finite element analysis problem.
+
+        Args:
+            RGC (list[torch.Tensor]): The redundant generalized coordinates.
+        """
+        self.RGC = RGC
+        self.GC = self._RGC2GC(self.RGC)
+
+        for e in self.elems.values():
+            e.reinitialize(RGC)
+
+        for l in self.loads.values():
+            l.reinitialize(RGC)
+
+        for c in self.constraints.values():
+            c.reinitialize(RGC)
+
     def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7) -> bool:
         """
         Solves the finite element analysis problem.

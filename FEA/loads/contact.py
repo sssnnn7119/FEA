@@ -14,8 +14,8 @@ class ContactBase(BaseLoad):
                  penalty_degree: int = 9,
                  penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.5,
-                 penalty_start_f: float = -0.9,
-                 penalty_end_f: float = -0.95):
+                 penalty_start_f: float = -0.7,
+                 penalty_end_f: float = -0.8):
         """
         Initialize the base contact load with common parameters.
 
@@ -104,7 +104,7 @@ class ContactBase(BaseLoad):
         else:
             points = elems_mid1.numpy()
         kdtree = scipy.spatial.cKDTree(points)
-        pairs = torch.from_numpy(kdtree.query_pairs(self._penalty_threshold_h*1.5, output_type='ndarray')).to(nodes.device).T
+        pairs = torch.from_numpy(kdtree.query_pairs(self._penalty_threshold_h*2.0, output_type='ndarray')).to(nodes.device).T
         index_revert = torch.where(pairs[0] >= pairs[1])[0]
         pairs[:, index_revert] = pairs[:, index_revert][[1, 0]]
         if not self.is_self_contact:
@@ -114,8 +114,8 @@ class ContactBase(BaseLoad):
         
         self._point_pairs = pairs
 
-    def reinitialize(self):
-        return super().reinitialize()
+    def reinitialize(self, RGC: list[torch.Tensor]):
+        self._filter_point_pairs(surface_element1=self.surface_element1, surface_element2=self.surface_element2, nodes=RGC[0] + self._fea.nodes)
 
     def _calculate_positions_and_normals(self, RGC: list[torch.Tensor], surface_element1: BaseSurface, surface_element2: BaseSurface=None):
         """
@@ -324,6 +324,8 @@ class ContactSelf(ContactBase):
         D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
         D[D < 0] = 0
         g = (D / self._penalty_factor_g) ** self._penalty_degree
+
+
         L = dy.norm(dim=-1)
         T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
         T = T.clamp(0, 1)

@@ -21,7 +21,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/C3D4.inp')
+fem.Read_INP(current_path + '/Free.inp')
 
 fe = FEA.from_inp(fem)
 
@@ -32,7 +32,7 @@ fe.nodes[fe.elems['element-0']._elems.flatten().unique(), 2] += 40
 
 # FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
-fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
+fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.02),
                 name='pressure-1')
 
 bc_dof = fe.node_sets['surface_0_Bottom'] * 3
@@ -53,17 +53,13 @@ bc_name = fe.add_constraint(
 rp = fe.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
 
 indexNodes = fe.node_sets['surface_0_Head']
-# FEA.add_constraint(
-#     Constraints.Couple(
-#         indexNodes=indexNodes,
-#         rp_index=2))
-# fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
+fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
 
 fe.add_load(FEA.loads.Contact(surface_name1='surface_0_All', surface_name2='surfaceblock'))
 
 t1 = time.time()
 
-fe.solve(tol_error=0.01)
+fe.solve(tol_error=0.001)
 
 
 print(fe.GC[-6:])
@@ -101,7 +97,6 @@ Unorm = (U**2).sum(axis=1)**0.5
 # Plot the deformed surface
 mesh1=mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf, scalars=Unorm)
 mesh2=mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf2[:, [0,1,2]], scalars=Unorm)
-# mesh3=mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf2[:, [0,2,3]], scalars=Unorm)
 
 mesh1.actor.property.edge_visibility = True
 mesh1.actor.property.line_width = 1.0
@@ -111,8 +106,10 @@ mesh2.actor.property.edge_visibility = True
 mesh2.actor.property.line_width = 1.0
 mesh2.actor.property.edge_color = (0, 0, 0)  # Black edges
 
-# mesh3.actor.property.edge_visibility = True
-# mesh3.actor.property.line_width = 1.0
-# mesh3.actor.property.edge_color = (0, 0, 0)  # Black edges
+if extern_surf2.shape[1] > 3:
+    mesh3=mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf2[:, [0,2,3]], scalars=Unorm)
+    mesh3.actor.property.edge_visibility = True
+    mesh3.actor.property.line_width = 1.0
+    mesh3.actor.property.edge_color = (0, 0, 0)  # Black edges
 
 mlab.show()

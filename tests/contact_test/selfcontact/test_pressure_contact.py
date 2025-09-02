@@ -34,9 +34,9 @@ fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
 # fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
 fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_1_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_2_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_3_All'))
+# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_1_All'))
+# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_2_All'))
+# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_3_All'))
 
 bc_dof = np.array(
     list(fem.part['final_model'].sets_nodes['surface_0_Bottom'])) * 3
