@@ -12,7 +12,7 @@ class parts():
         self.sets_nodes: dict['str', set]
         self.sets_elems: dict['str', set]
         self.surfaces_tri: dict['str', np.ndarray]
-        self.surfaces: dict[np.ndarray, list[tuple[str, int]]]
+        self.surfaces: dict[str, list[tuple[np.ndarray, int]]]
         
         self.num_elems_3D: int
         self.num_elems_2D: int
@@ -212,9 +212,11 @@ class parts():
                    ) >= 12 and now[0:12] == '*Nset, nset=':
                 # name = now[12:].replace('\n', '').strip()
                 data_now = now.split('=')[1].split(',')
+                for ii in range(len(data_now)):
+                    data_now[ii] = data_now[ii].strip()
                 name = data_now[0].strip()
                 ind += 1
-                if len(data_now) == 1 or data_now[1].strip() == 'internal':
+                if not 'generate' in data_now:
                     ind0 = ind
                     now = origin_data[ind]
                     while now[0] != '*':
@@ -230,10 +232,10 @@ class parts():
                     ]
                     self.sets_nodes[name] = set(
                         (torch.tensor(datalist, dtype=torch.int) - 1).tolist())
-                elif data_now[1].strip() == 'generate':
+                else:
                     now = list(map(int, origin_data[ind].split(',')))
                     self.sets_nodes[name] = set(
-                        (torch.tensor(range(now[0], now[1] + 1)) - 1).tolist())
+                        (torch.arange(now[0], now[1]+1, now[2]) - 1).tolist())
                 continue
 
             # case element set
@@ -241,9 +243,11 @@ class parts():
                     0:14] == '*Elset, elset=':
                 # name = now[14:].replace('\n', '').strip()
                 data_now = now.split('=')[1].split(',')
+                for ii in range(len(data_now)):
+                    data_now[ii] = data_now[ii].strip()
                 name = data_now[0].strip()
                 ind += 1
-                if len(data_now) == 1 or data_now[1].strip() == 'internal':
+                if not 'generate' in data_now:
                     ind0 = ind
                     now = origin_data[ind]
                     while now[0] != '*':
@@ -260,10 +264,10 @@ class parts():
                     self.sets_elems[name] = set(
                         (torch.tensor(datalist, dtype=torch.int) - 1).tolist())
                     continue
-                elif data_now[1].strip() == 'generate':
+                else:
                     now = list(map(int, origin_data[ind].split(',')))
                     self.sets_elems[name] = set(
-                        (torch.tensor(range(now[0], now[1] + 1)) - 1).tolist())
+                        (torch.arange(now[0], now[1]+1, now[2]) - 1).tolist())
                     continue
             
             # case surfaces
@@ -318,9 +322,10 @@ class parts():
                                     surfaceList.append(elem[:, [8,10,7]])
                                     
                             self.surfaces[name].append((elem_now[elem_index, 0], surface_index-1))
-                    
-                    self.surfaces_tri[name] = np.concatenate(surfaceList, axis=0)
-                    
+                    try:
+                        self.surfaces_tri[name] = np.concatenate(surfaceList, axis=0)
+                    except:
+                        pass
                 continue
 
             # case node

@@ -134,7 +134,7 @@ class FEA_Main():
         get_surface_set: Get a surface set by name.
     """
 
-    def __init__(self, nodes: torch.Tensor, maximum_iteration: int = 100) -> None:
+    def __init__(self, nodes: torch.Tensor, maximum_iteration: int = 10000) -> None:
         """
         Initialize the FEA class.
 
@@ -506,7 +506,7 @@ class FEA_Main():
         # line search
         alpha = 1.0
         beta = float('inf')
-        c1 = 0.4
+        c1 = 0.3
         c2 = 0.4
         dGC0 = dGC.clone()
         deltaE = (dGC * R).sum()
@@ -676,6 +676,16 @@ class FEA_Main():
             energynew = self._total_Potential_Energy(
                 RGC=RGC)
             energy.append(energynew)
+
+            # reinitialize the objects
+            # for e in self.elems.values():
+            #     e.reinitialize(RGC=RGC)
+
+            # for f in self.loads.values():
+            #     f.reinitialize(RGC=RGC)
+
+            # for c in self.constraints.values():
+            #     c.reinitialize(RGC=RGC)
 
             t4 = time.time()
 
@@ -920,15 +930,15 @@ class FEA_Main():
                                                        K_values_preconditioned,
                                                        R_preconditioned,
                                                        x0,
-                                                       tol=1e-4,
+                                                       tol=1e-5,
                                                        max_iter=6000)
             else:
                 dx = _linear_Solver.conjugate_gradient(K_indices,
                                                        K_values_preconditioned,
                                                        R_preconditioned,
                                                        x0,
-                                                       tol=1e-4,
-                                                       max_iter=1000)
+                                                       tol=1e-5,
+                                                       max_iter=1500)
         result = dx.to(R.dtype) / diag
         return result
 

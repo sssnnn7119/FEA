@@ -59,7 +59,7 @@ class BaseSurface():
         """
             the shape functions of the element
 
-            # coordinates: (g,h,r) in the local coordinates
+            # coordinates: (g,h) in the local coordinates
                 0: constant,\n
                 1: g,\n
                 2: h,\n

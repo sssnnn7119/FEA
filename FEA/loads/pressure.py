@@ -76,7 +76,7 @@ class Pressure(BaseLoad):
 
         # node_pos.requires_grad_()
 
-        V = self.get_potential_energy(RGC) / self.pressure * (-1)
+        # V = self.get_potential_energy(RGC) / self.pressure * (-1)
 
         for surf_ind in range(len(self.surface_element)):
             surf_elem = self.surface_element[surf_ind]

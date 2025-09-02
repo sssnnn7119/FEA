@@ -47,3 +47,6 @@ class BaseObj():
 
     def initialize(self, fea: FEA_Main):
         self._fea = fea
+    
+    def reinitialize(self, RGC: list[torch.Tensor]):
+        pass

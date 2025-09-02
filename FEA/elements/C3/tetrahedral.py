@@ -50,7 +50,7 @@ class C3D4(Element_3D):
         if index_now.shape[0] == 0:
             tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
 
-        if surface_ind == 0:
+        elif surface_ind == 0:
             tri_elems = self._elems[index_now][:, [0, 2, 1]]
         elif surface_ind == 1:
             tri_elems = self._elems[index_now][:, [0, 1, 3]]

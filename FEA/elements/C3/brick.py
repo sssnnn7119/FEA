@@ -179,7 +179,7 @@ class C3D8(Element_3D):
             quad_elems = torch.empty([0, 4],
                                dtype=torch.long,
                                device=self._elems.device)
-            return initialize_surfaces(quad_elems)
+            return [initialize_surfaces(quad_elems)]
 
         # Return appropriate face nodes according to face definitions in comments
         if surface_ind == 0:  # Bottom face (r=-1): face0: 0321
@@ -197,7 +197,7 @@ class C3D8(Element_3D):
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
 
-        return initialize_surfaces(quad_elems)
+        return [initialize_surfaces(quad_elems)]
 
 
 class C3D8R(C3D8):
@@ -718,7 +718,7 @@ class C3D20(Element_3D):
         
         if index_now.shape[0] == 0:
             quad_elems = torch.empty([0, 8], dtype=torch.long, device=self._elems.device)
-            return initialize_surfaces(quad_elems)
+            return [initialize_surfaces(quad_elems)]
 
         # Return appropriate face nodes according to face definitions in comments
         if surface_ind == 0:
@@ -760,7 +760,7 @@ class C3D20(Element_3D):
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
         
-        return initialize_surfaces(quad_elems)
+        return [initialize_surfaces(quad_elems)]
 
     def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
         """
