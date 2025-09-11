@@ -47,8 +47,9 @@ def fea_inp(inp_name: str):
 
 
     fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
-    fe.add_load(
-        FEA.loads.Concentrate_Force(rp_name=rp, force=[50., 0., 0.]))
+    # fe.add_load(
+    #     FEA.loads.Concentrate_Force(rp_name=rp, force=[50., 0., 0.]))
+    fe.add_load(FEA.loads.BodyForce(element_name='element-0', force_density=[9.8e-6,0,0]))
     t1 = time.time()
     fe.initialize()
 

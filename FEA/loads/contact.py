@@ -77,7 +77,7 @@ class ContactBase(BaseLoad):
 
         return check>0
 
-    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes: torch.Tensor):
+    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes: torch.Tensor, max_search_length: float = 2.0):
         """
         Filter point pairs between surfaces for contact detection.
         
@@ -90,6 +90,7 @@ class ContactBase(BaseLoad):
         Returns:
             tuple: (point_pairs, ratio_d) for contact detection
         """
+
         # Get Gaussian points for both surfaces
         elems_gaussian1 = surface_element1.gaussian_points_position(nodes)
         elems_gaussian2 = surface_element2.gaussian_points_position(nodes)
@@ -100,11 +101,11 @@ class ContactBase(BaseLoad):
         
         # Calculate distances between surface midpoints
         if not self.is_self_contact:
-            points = torch.cat([elems_mid1, elems_mid2], dim=0).numpy()
+            points = torch.cat([elems_mid1, elems_mid2], dim=0).detach().cpu().numpy()
         else:
-            points = elems_mid1.numpy()
+            points = elems_mid1.detach().cpu().numpy()
         kdtree = scipy.spatial.cKDTree(points)
-        pairs = torch.from_numpy(kdtree.query_pairs(self._penalty_threshold_h*2.0, output_type='ndarray')).to(nodes.device).T
+        pairs = torch.from_numpy(kdtree.query_pairs(max_search_length, output_type='ndarray')).to(nodes.device).T
         index_revert = torch.where(pairs[0] >= pairs[1])[0]
         pairs[:, index_revert] = pairs[:, index_revert][[1, 0]]
         if not self.is_self_contact:
@@ -185,7 +186,8 @@ class ContactSelf(ContactBase):
 
     def __init__(self, surface_name: str,
                  ignore_min_normal: float = 0.2,
-                 ignore_max_normal: float = 0.5, **kwargs):
+                 ignore_max_normal: float = 0.5, 
+                 initial_detact_ratio: float = 1.5, **kwargs):
         """
         Initialize the self-contact load.
 
@@ -215,6 +217,9 @@ class ContactSelf(ContactBase):
         self._ratio: torch.Tensor
         """The ratio to avoid the intersection of surfaces."""
 
+        self._initial_detact_ratio = initial_detact_ratio
+        """The initial detach ratio to avoid the initial intersection of surfaces."""
+
     def initialize(self, fea):
         
         super().initialize(fea)
@@ -228,8 +233,8 @@ class ContactSelf(ContactBase):
             self.surface_element, self.surface_element, fea.nodes)
 
     def _filter_point_pairs(self, surface_element1, surface_element2, nodes):
-        super()._filter_point_pairs(surface_element1, surface_element2, nodes)
-
+        super()._filter_point_pairs(surface_element1, surface_element2, nodes, max_search_length=self._penalty_threshold_h*self._initial_detact_ratio)
+        
         def _ratio_d_func(dx: torch.Tensor, dm: torch.Tensor):
             """
             Calculate the ratio for self-contact to avoid the calculation of the nearest distance.

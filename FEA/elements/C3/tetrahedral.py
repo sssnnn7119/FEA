@@ -125,6 +125,9 @@ class C3D10(Element_3D):
         if index_now.shape[0] == 0:
             return []
         
+        if self.surf_order.dim() == 1:
+            self.surf_order = self.surf_order.unsqueeze(0).repeat(self._elems.shape[0], 1)
+
         ind_1order = torch.where(self.surf_order[index_now, surface_ind] == 1)[0]
         ind_2order = torch.where(self.surf_order[index_now, surface_ind] != 1)[0]
 

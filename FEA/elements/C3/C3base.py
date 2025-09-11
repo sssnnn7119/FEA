@@ -15,7 +15,7 @@ class Element_3D(BaseElement):
                  elems: torch.Tensor) -> None:
         super().__init__(elems_index, elems)
 
-        self.shape_function_gaussian: torch.Tensor
+        self.shape_function_d1_gaussian: torch.Tensor
         """
             the shape functions of each guassian point
                 [
@@ -164,6 +164,7 @@ class Element_3D(BaseElement):
 
         # prepare the information for the FEA
         shapeFun1 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, self.num_nodes_per_elem])
+        shapeFun0 = torch.zeros([self._num_gaussian, self._elems.shape[0], self.num_nodes_per_elem])
         det_Jacobian = torch.zeros([self._num_gaussian, self._elems.shape[0]])
         for order_ind in range(surf_order_all.shape[0]):
             surf_order_now = surf_order_all[order_ind]
@@ -197,11 +198,13 @@ class Element_3D(BaseElement):
             inv_Jacobian = Jacobian.inverse()
             shapeFun1[:, elem_index] = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
                                     shape1_now)
+            
+            shapeFun0[:, elem_index] = torch.einsum('ab, gb->ga', shape0_now,
+                                      pp).unsqueeze(1)
 
         self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight)
-        self.shape_function_gaussian = shapeFun1
-
-        
+        self.shape_function_d1_gaussian = shapeFun1
+        self.shape_function_d0_gaussian = shapeFun0
         
     def _shape_function_derivative(self, shape_function: torch.Tensor, ind: int):
         """
@@ -340,7 +343,7 @@ class Element_3D(BaseElement):
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
             Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                         self.shape_function_gaussian[:, :, :, i],
+                                         self.shape_function_d1_gaussian[:, :, :, i],
                                          U[self._elems[:, i]])
 
         F = Ugrad.clone()
@@ -367,14 +370,14 @@ class Element_3D(BaseElement):
         
         # calculate the element residual force
         Relement = torch.einsum('geij,geia,ge->aje', s,
-                                self.shape_function_gaussian,
+                                self.shape_function_d1_gaussian,
                                 self.gaussian_weight).flatten()
         
         # calculate the element tangential stiffness matrix
         Ka_element = torch.einsum('geijkl,gelb,geia,ge->ajbke',
                                    C,
-                                  self.shape_function_gaussian,
-                                  self.shape_function_gaussian,
+                                  self.shape_function_d1_gaussian,
+                                  self.shape_function_d1_gaussian,
                                   self.gaussian_weight).flatten()
         
         # assembly the stiffness matrix and residual force                 
@@ -390,7 +393,7 @@ class Element_3D(BaseElement):
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
             Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                         self.shape_function_gaussian[:, :, :, i],
+                                         self.shape_function_d1_gaussian[:, :, :, i],
                                          U[self._elems[:, i]])
 
         F = Ugrad.clone()
@@ -421,7 +424,7 @@ class Element_3D(BaseElement):
             Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
             for i in range(self.num_nodes_per_elem):
                 Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                            self.shape_function_gaussian[:, :, :, i],
+                                            self.shape_function_d1_gaussian[:, :, :, i],
                                             U[self._elems[:, i]])
             F = Ugrad.clone()
             F[:, :, 0, 0] += 1
