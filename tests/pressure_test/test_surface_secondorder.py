@@ -13,7 +13,7 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
-fem = FEA.FEA_INP()
+fem = FEA.inp()
 # fem.Read_INP(
 #     'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/2024Arm/WorkspaceCase/CAE/TopOptRun.inp'
 # )

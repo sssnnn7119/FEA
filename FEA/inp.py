@@ -11,7 +11,6 @@ class parts():
         self.sections: list
         self.sets_nodes: dict['str', set]
         self.sets_elems: dict['str', set]
-        self.surfaces_tri: dict['str', np.ndarray]
         self.surfaces: dict[str, list[tuple[np.ndarray, int]]]
         
         self.num_elems_3D: int
@@ -35,7 +34,6 @@ class parts():
         self.sets_nodes = {}
         self.sets_elems = {}
         self.surfaces = {}
-        self.surfaces_tri = {}
         self.num_elems_3D = 0
         self.num_elems_2D = 0
         section = []
@@ -514,49 +512,6 @@ class FEA_INP():
                               U0[index, :],
                               axis=1).tolist())
 
-    def Get_Volumn(self, part_ind):
-        if type(part_ind) == int:
-            part_ind = list(self.part.keys())[part_ind]
-
-        volumn = torch.zeros(self.part[part_ind].num_elems_3D)
-
-        def volumn_Tet(self, elem):
-            pt0 = self.part[part_ind].nodes[elem[:, 1]][:, 1:]
-            pt1 = self.part[part_ind].nodes[elem[:, 2]][:, 1:]
-            pt2 = self.part[part_ind].nodes[elem[:, 3]][:, 1:]
-            pt3 = self.part[part_ind].nodes[elem[:, 4]][:, 1:]
-            vec1 = pt1 - pt0
-            vec2 = pt2 - pt0
-            vec3 = pt3 - pt0
-            volumn = torch.abs(
-                torch.sum(torch.cross(vec1, vec2) * vec3, axis=1)) / 6
-            return volumn
-
-        if 'C3D10H' in list(self.part[part_ind].elems.keys()):
-            elem = self.part[part_ind].elems['C3D10H']
-            volumn[elem[:, 0]] = volumn_Tet(self, elem)
-
-        if 'C3D10' in list(self.part[part_ind].elems.keys()):
-            elem = self.part[part_ind].elems['C3D10']
-            volumn[elem[:, 0]] = volumn_Tet(self, elem)
-
-        if 'C3D4H' in list(self.part[part_ind].elems.keys()):
-            elem = self.part[part_ind].elems['C3D4H']
-            volumn[elem[:, 0]] = volumn_Tet(self, elem)
-
-        if 'C3D4' in list(self.part[part_ind].elems.keys()):
-            elem = self.part[part_ind].elems['C3D4']
-            volumn[elem[:, 0]] = volumn_Tet(self, elem)
-
-        return volumn
-
-    def Get_Volumn_Closed_Shell(self, shell_elems, nodes):
-        node1 = nodes[shell_elems[:, 0], :]
-        node2 = nodes[shell_elems[:, 1], :]
-        node3 = nodes[shell_elems[:, 2], :]
-        Volumn = 1 / 6 * (torch.cross(node1, node2, dim=1) * node3).sum()
-        return Volumn
-
     def Find_Surface(self, surf_set: list[str], part_ind=0):
         """
         surf_set: list of surface set name
@@ -634,24 +589,3 @@ class FEA_INP():
                             add_surf(1, 3, 2)
         return elem_index, np.array(shell_elems), torch.stack(
             normal_vec, dim=0), torch.stack(center_point, dim=0)
-
-if __name__ == '__main__':
-    torch.set_default_device(torch.device('cuda'))
-    torch.set_default_tensor_type(torch.DoubleTensor)
-
-    fem = FEA_INP()
-    fem.Read_INP(
-        'Z:/RESULT/T20240123135421_/Cache/TopOptRun.inp'
-    )
-    fem.Read_INP(
-        'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/TRO20230207Morph/20230411Revise/Result2/Bend0/FEA/c3d4.inp'
-    )
-    fem.Read_Result(
-        'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/TRO20230207Morph/20230411Revise/Result2/Bend0/FEA/',
-        ['c3d4.csv'])
-
-    # fem.Get_Shape_Function(0)
-    # fem.FEA_Opt()
-    fem.FEA_Main()
-
-    print('ok')

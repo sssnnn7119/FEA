@@ -14,7 +14,7 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
-fem = FEA.FEA_INP()
+fem = FEA.inp()
 
 from matplotlib import pyplot as plt
 
@@ -216,10 +216,10 @@ def fix_duplicate_nodes(fe, duplicate_info, tolerance=1e-6):
     return fe, {}
 
 
-def init_FEA(inp: FEA.FEA_INP,
+def init_FEA(inp: FEA.inp,
                 mu: dict[str, np.ndarray] = None,
                 kappa: dict[str, np.ndarray] = None,
-                density: dict[str, np.ndarray] = None) -> FEA.Main.FEA_Main:
+                density: dict[str, np.ndarray] = None) -> FEA.controller.FEAController:
     """
     Initialize the FEA class with the given input parameters.
 
@@ -236,7 +236,7 @@ def init_FEA(inp: FEA.FEA_INP,
     return fe
 
 
-def generate_shell_model(fe: FEA.Main.FEA_Main, surface_names, shell_thickness: float) -> FEA.Main.FEA_Main:
+def generate_shell_model(fe: FEA.controller.FEAController, surface_names, shell_thickness: float) -> FEA.controller.FEAController:
     """
     Generate a new FEA model with C3D6 shell elements extruded from surfaces.
     

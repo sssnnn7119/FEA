@@ -3,6 +3,7 @@ import os
 import numpy as np
 import time
 import sys
+
 sys.path.append('.')
 
 import FEA
@@ -24,6 +25,7 @@ fem = FEA.FEA_INP()
 fem.Read_INP(current_path + '/C3D4.inp')
 
 fe = FEA.from_inp(fem)
+fe.solver = FEA.solver.StaticImplicitSolver()
 # fe._maximum_step_length = 0.3
 # elems = FEA.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
 # fe.elems['element-0'].set_materials(elems)

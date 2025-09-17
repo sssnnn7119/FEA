@@ -7,9 +7,7 @@ if TYPE_CHECKING:
 import numpy as np
 import torch
 from . import materials
-from ..obj_base import BaseObj
-
-class BaseElement(BaseObj):
+class BaseElement():
     _subclasses: dict[str, 'BaseElement'] = {}
 
     def __init_subclass__(cls):
@@ -82,8 +80,8 @@ class BaseElement(BaseObj):
         """
         raise NotImplementedError('The gaussian points of the element is not implemented yet')
 
-    def initialize(self, assembly: Assembly):
-        super().initialize(assembly=assembly)
+    def initialize(self, *args, **kwargs):
+        pass
     
     def potential_Energy(self, RGC: torch.Tensor):
         pass

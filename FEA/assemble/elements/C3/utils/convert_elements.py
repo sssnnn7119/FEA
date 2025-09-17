@@ -357,7 +357,7 @@ def convert_to_second_order(fe: FEA_Main, element_names: list[str]=None)-> FEA_M
         combined_nodes = torch.cat([original_nodes, new_nodes])
     
     # Create a new FEA model with the updated nodes
-    new_fe = FEA.Main.FEA_Main(combined_nodes)
+    new_fe = FEA.controller.FEAController(combined_nodes)
     
     # Copy non-converted elements from the original model
     for elem_name, elem_obj in fe.elems.items():

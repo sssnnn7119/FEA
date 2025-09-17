@@ -10,7 +10,7 @@ import numpy as np
 import FEA
 
 
-def divide_surface_elements(fe: FEA.FEA_Main, name_element: str, name_surface: str):
+def divide_surface_elements(fe: FEA.FEAController, name_element: str, name_surface: str):
 
     elems_now: FEA.elements.Element_3D = fe.elems[name_element]
     surface = fe.surface_sets[name_surface]
@@ -38,7 +38,7 @@ def divide_surface_elements(fe: FEA.FEA_Main, name_element: str, name_surface: s
 
     return elems_surface, elems_other
 
-def set_surface_2order(fe: FEA.FEA_Main, name_elems: str, name_surface: str):
+def set_surface_2order(fe: FEA.FEAController, name_elems: str, name_surface: str):
     
     element0: FEA.elements.Element_3D = fe.elems[name_elems]
 

@@ -6,7 +6,6 @@ import sys
 sys.path.append('.')
 
 import FEA
-from FEA.elements import materials
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))

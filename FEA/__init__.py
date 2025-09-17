@@ -1,11 +1,13 @@
 import numpy as np
 import torch
-from .FEA_INP import FEA_INP
-from .Main import FEA_Main
-from .assemble import Assembly
-from .assemble import Part, Instance, materials, elements, loads, constraints, ReferencePoint, surfaces
+from .inp import FEA_INP
+from .controller import FEAController
+from .assemble import Part, Instance, ReferencePoint, Assembly
+from .assemble import materials, elements, loads, constraints, surfaces
+from . import solver
 
-def from_inp(inp: FEA_INP) -> FEA_Main:
+
+def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
     """
     Load a FEA model from an INP file.
 
@@ -27,7 +29,8 @@ def from_inp(inp: FEA_INP) -> FEA_Main:
         part_now = Part(part_nodes.nodes[:, 1:])
 
         assembly_now.add_part(part=part_now, name=part_name)
-        assembly_now.add_instance(instance=Instance(part_now), name=part_name)
+        if create_instance:
+            assembly_now.add_instance(instance=Instance(part_now), name=part_name)
 
         elems = inp.part[part_name].elems
         elems_num_now = 0
@@ -69,8 +72,6 @@ def from_inp(inp: FEA_INP) -> FEA_Main:
             part_now.add_surface_set(full_name, sf_now)
 
 
-    fe = FEA_Main()
+    fe = FEAController()
     fe.assembly = assembly_now
-
-
     return fe

@@ -17,14 +17,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from FEA.convert_elements import convert_to_second_order, convert_elements_batch
 from FEA.generate_shell import generate_shell_from_surface, add_shell_elements_to_model
 import FEA
-from FEA.Main import FEA_Main
+from FEA.controller import FEAController
 from FEA.elements.C3.C3D4 import C3D4
 from FEA.elements.C3.C3D6 import C3D6
 from FEA.elements.C3.C3D10 import C3D10
 from FEA.elements.C3.C3D15 import C3D15
 from FEA.convert_elements import convert_to_second_order
 
-def generate_shell_model(fe: FEA.Main.FEA_Main, surface_names, shell_thickness: float) -> FEA.Main.FEA_Main:
+def generate_shell_model(fe: FEA.controller.FEAController, surface_names, shell_thickness: float) -> FEA.controller.FEAController:
     """
     Generate a new FEA model with C3D6 shell elements extruded from surfaces.
     
@@ -55,7 +55,7 @@ def create_tetrahedron():
     ], dtype=torch.float32)
     
     # Create FEA model
-    fe = FEA_Main(nodes)
+    fe = FEAController(nodes)
     
     # Create a single tetrahedron element
     elements = torch.tensor([[0, 1, 2, 3]], dtype=torch.int64)
@@ -77,7 +77,7 @@ def create_wedge():
         [ 0.2929,  1.7165, 15.0000]], dtype=torch.float32)
     
     # Create FEA model
-    fe = FEA_Main(nodes)
+    fe = FEAController(nodes)
     
     # Create a single wedge element
     elements = torch.tensor([[0, 1, 2, 3, 4, 5]], dtype=torch.int64)
@@ -204,7 +204,7 @@ def visualize_element_nodes(fe, element_name, ax, title, ind=0):
     ax.legend()
 
 def test_node_ordering():
-    fem = FEA.FEA_INP()
+    fem = FEA.inp()
     current_path = os.path.dirname(os.path.abspath(__file__))
     inp_file = os.path.join(current_path, '_forshellgenerate.inp')
     fem.Read_INP(inp_file)

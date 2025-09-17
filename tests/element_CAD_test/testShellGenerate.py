@@ -16,7 +16,7 @@ torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
 
-def init_FEA(inp: FEA.FEA_INP,
+def init_FEA(inp: FEA.inp,
                 shell_thickness: float,
                 shell_mu: float,
                 shell_kappa: float,
@@ -24,7 +24,7 @@ def init_FEA(inp: FEA.FEA_INP,
                 surface_names: list[str],
                 mu: dict[str, np.ndarray] = None,
                 kappa: dict[str, np.ndarray] = None,
-                density: dict[str, np.ndarray] = None) -> FEA.Main.FEA_Main:
+                density: dict[str, np.ndarray] = None) -> FEA.controller.FEAController:
     """
     Initialize the FEA class with the given input parameters.
 
@@ -154,4 +154,4 @@ def init_FEA(inp: FEA.FEA_INP,
     return fe
 
 if __name__ == '__main__':
-    fem = FEA.FEA_INP()
+    fem = FEA.inp()

@@ -235,7 +235,7 @@ def add_shell_elements_to_model(fe: FEA_Main, nodes_new: torch.Tensor,
     """
     import FEA
     # Create a new FEA_Main instance with the updated nodes
-    new_fe = FEA.Main.FEA_Main(nodes_new)
+    new_fe = FEA.controller.FEAController(nodes_new)
 
     # Copy all the original elements from the old model
     for elem_name, elem_obj in fe.elems.items():

@@ -190,7 +190,7 @@ class ContactSelf(ContactBase):
     def __init__(self, instance_name: str, surface_name: str,
                  ignore_min_normal: float = 0.2,
                  ignore_max_normal: float = 0.5, 
-                 initial_detact_ratio: float = 6., **kwargs):
+                 initial_detact_ratio: float = 2., **kwargs):
         """
         Initialize the self-contact load.
 
@@ -286,9 +286,8 @@ class ContactSelf(ContactBase):
 
     def get_potential_energy(self, RGC):
 
-        # self._filter_point_pairs(self.surface_element, self.surface_element, self._fea.nodes + RGC[0])
-
         instance = self._assembly.get_instance(self.instance_name)
+        self._filter_point_pairs(self.surface_element, self.surface_element, instance.nodes + RGC[instance._RGC_index])
 
         U = RGC[instance._RGC_index]
         # U = U.detach().clone().requires_grad_()
@@ -340,9 +339,10 @@ class ContactSelf(ContactBase):
 
 
     def get_stiffness(self, RGC):
-        # self._filter_point_pairs(self.surface_element, self.surface_element, self._fea.nodes + RGC[0])
+        
 
         instance = self._assembly.get_instance(self.instance_name)
+        self._filter_point_pairs(self.surface_element, self.surface_element, instance.nodes + RGC[instance._RGC_index])
 
         U = RGC[instance._RGC_index]
         # U = U.detach().clone().requires_grad_()

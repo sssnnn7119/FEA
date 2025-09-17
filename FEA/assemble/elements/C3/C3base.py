@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ... import Assembly, Part
+    from ... import Part
 
 
 import re
@@ -101,9 +101,9 @@ class Element_3D(BaseElement):
         self.gaussian_coordinates: torch.Tensor
         """the coordinates of gaussian points in the reference space"""
 
-    def initialize(self, assembly) -> None:
+    def initialize(self, *args, **kwargs) -> None:
 
-        super().initialize(assembly=assembly)
+        super().initialize(*args, **kwargs)
         # coo index of the stiffness matricx of structural stress
 
         index0_ = torch.stack([

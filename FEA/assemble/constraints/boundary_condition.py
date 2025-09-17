@@ -17,7 +17,7 @@ class Boundary_Condition(BaseConstraint):
         
         """
         super().__init__()
-        self.index_nodes = index_nodes
+        self.index_nodes = np.sort(list(index_nodes))
         self.instance_name = instance_name
         self.indexDoF = indexDoF
         """Record the instance name"""

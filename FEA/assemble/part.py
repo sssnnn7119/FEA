@@ -108,9 +108,9 @@ class Part:
 
         self.surfaces = _Surfaces()
 
-    def initialize(self, assembly: Assembly):
+    def initialize(self, *args, **kwargs):
         for e in self.elems.values():
-            e.initialize(assembly=assembly)
+            e.initialize()
         self.surfaces.initialize(self)
 
     def add_element(self, element: BaseElement, name: str = None):
@@ -349,8 +349,6 @@ class Instance(BaseObj):
         return RGC_remain_index
     
     def set_RGC_index(self, index):
-        for e in self.part.elems.values():
-            e.set_RGC_index(index)
         super().set_RGC_index(index)
     
     def initialize(self, assembly: Assembly):
