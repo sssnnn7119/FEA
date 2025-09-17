@@ -21,7 +21,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/TopOptRun.inp')
+fem.Read_INP(current_path + '/C3D4.inp')
 
 fe = FEA.from_inp(fem)
 # fe._maximum_step_length = 0.3
@@ -30,30 +30,28 @@ fe = FEA.from_inp(fem)
 
 # FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
-fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
+fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
-# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_1_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_2_All'))
-fe.add_load(FEA.loads.ContactSelf(surface_name='surface_3_All'))
+# fe.assembly.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
+fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_0_All'))
+fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_1_All'))
+fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_2_All'))
+fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_3_All'))
 
 bc_dof = np.array(
-    list(fem.part['final_model'].sets_nodes['surface_0_Bottom'])) * 3
-bc_dof = np.concatenate([bc_dof, bc_dof + 1, bc_dof + 2])
-bc_name = fe.add_constraint(
-    FEA.constraints.Boundary_Condition(indexDOF=bc_dof,
-                                    dispValue=torch.zeros(bc_dof.size)))
+    list(fem.part['final_model'].sets_nodes['surface_0_Bottom']))
+bc_name = fe.assembly.add_constraint(
+    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
 
-rp = fe.add_reference_point(FEA.ReferencePoint([0, 0, 70]))
+rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 70]))
 
-indexNodes = np.where((abs(fe.nodes[:, 2] - 70)
-                        < 0.1).cpu().numpy())[0]
+indexNodes = fem.part['final_model'].sets_nodes['surface_0_Head']
 # FEA.add_constraint(
 #     Constraints.Couple(
 #         indexNodes=indexNodes,
 #         rp_index=2))
-fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
+fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', indexNodes=indexNodes, rp_name=rp))
+
 
 
 
@@ -62,13 +60,14 @@ t1 = time.time()
 fe.solve(tol_error=0.001)
 
 
-print(fe.GC[-6:])
+print(fe.assembly.GC)
 print('ok')
 
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
-extern_surf = fem.Find_Surface(['surface_0_All'])[1]
-# extern_surf = fem.part['final_model'].surfaces['surface_1_All']
+ins1 = fe.assembly.get_instance('final_model')
+
+extern_surf = ins1.surfaces.get_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
 
 from mayavi import mlab
 import vtk
@@ -76,22 +75,22 @@ from mayavi import mlab
 coo=extern_surf
 
 # Get the deformed surface coordinates
-U = fe.RGC[0].cpu().numpy()
-undeformed_surface = (fem.part['final_model'].nodes[:,1:]).cpu().numpy()
+U = fe.assembly.RGC[ins1._RGC_index].cpu().numpy()
+undeformed_surface = ins1.nodes.cpu().numpy()
 deformed_surface = undeformed_surface + U
-
 r=deformed_surface.transpose()
-
 
 Unorm = (U**2).sum(axis=1)**0.5
 
-# Plot the deformed surface
-# Plot the deformed surface with triangular faces
-mesh = mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], 
-                           extern_surf, scalars=Unorm)
+# surface = mlab.pipeline.triangular_mesh_source(r[0], r[1], r[2], coo)
+# surface_vtk = surface.outputs[0]._vtk_obj
+# stlWriter = vtk.vtkSTLWriter()
+# stlWriter.SetFileName('test.stl')
+# stlWriter.SetInputConnection(surface_vtk.GetOutputPort())
+# stlWriter.Write()
+# mlab.close()
 
-# Add the edges of each triangle
-mesh.actor.property.edge_visibility = True
-mesh.actor.property.line_width = 1.0
-mesh.actor.property.edge_color = (0, 0, 0)  # Black edges
+# Plot the deformed surface
+mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf, scalars=Unorm)
+
 mlab.show()

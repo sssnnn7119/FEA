@@ -21,7 +21,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/C3D10.inp')
+fem.Read_INP(current_path + '/C3D4.inp')
 
 fe = FEA.from_inp(fem)
 
@@ -30,34 +30,24 @@ fe = FEA.from_inp(fem)
 
 # FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
-fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
+fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
 
 bc_dof = np.array(
-    list(fem.part['final_model'].sets_nodes['surface_0_Bottom'])) * 3
-bc_dof = np.concatenate([bc_dof, bc_dof + 1, bc_dof + 2])
-bc_name = fe.add_constraint(
-    FEA.constraints.Boundary_Condition(indexDOF=bc_dof,
-                                    dispValue=torch.zeros(bc_dof.size)))
+    list(fem.part['final_model'].sets_nodes['surface_0_Bottom']))
+bc_name = fe.assembly.add_constraint(
+    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
 
-rp = fe.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
+rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
 
-indexNodes = np.where((abs(fe.nodes[:, 2] - 80)
-                        < 0.1).cpu().numpy())[0]
-# FEA.add_constraint(
-#     Constraints.Couple(
-#         indexNodes=indexNodes,
-#         rp_index=2))
-fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
+indexNodes = fem.part['final_model'].sets_nodes['surface_0_Head']
+
+fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', indexNodes=indexNodes, rp_name=rp))
 
 
 
 t1 = time.time()
 
-
-mid_nodes_index = fe.elems['element-0'].get_2nd_order_point_index()
-        
-fe.nodes[mid_nodes_index[:, 0]] = (fe.nodes[mid_nodes_index[:, 1]] + fe.nodes[mid_nodes_index[:, 2]]) / 2.0
 
 fe.solve(tol_error=0.01)
 
@@ -67,7 +57,7 @@ print('ok')
 
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
-extern_surf = fe.get_surface_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
+extern_surf = fe.assembly.get_instance('final_model').surfaces('surface_0_All')[0]._elems[:, :3].cpu().numpy()
 # extern_surf = fem.part['final_model'].surfaces['surface_1_All']
 
 from mayavi import mlab

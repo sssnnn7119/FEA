@@ -23,13 +23,23 @@ def show_quiver3d(R, N, hold=False):
         mlab.show()
 
 fem = FEA.FEA_INP()
-
-fem.Read_INP(current_path + '/TopOptRun.inp')
+name = 'C3D4'
+fem.Read_INP(current_path + '/%s.inp' % name)
 
 fe = FEA.from_inp(fem)
+# fe._maximum_step_length = 0.3
+# elems = FEA.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
+# fe.elems['element-0'].set_materials(elems)
+
+# FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
 fe.add_load(FEA.loads.Pressure(surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
+# fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_0_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_1_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_2_All'))
+fe.add_load(FEA.loads.ContactSelf(surface_name='surface_3_All'))
 
 bc_dof = np.array(
     list(fem.part['final_model'].sets_nodes['surface_0_Bottom'])) * 3
@@ -38,9 +48,9 @@ bc_name = fe.add_constraint(
     FEA.constraints.Boundary_Condition(indexDOF=bc_dof,
                                     dispValue=torch.zeros(bc_dof.size)))
 
-rp = fe.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
+rp = fe.add_reference_point(FEA.ReferencePoint([0, 0, 70]))
 
-indexNodes = np.where((abs(fe.nodes[:, 2] - 80)
+indexNodes = np.where((abs(fe.nodes[:, 2] - 70)
                         < 0.1).cpu().numpy())[0]
 # FEA.add_constraint(
 #     Constraints.Couple(
@@ -49,7 +59,15 @@ indexNodes = np.where((abs(fe.nodes[:, 2] - 80)
 fe.add_constraint(FEA.constraints.Couple(indexNodes=indexNodes, rp_name=rp))
 
 
-fe.solve(tol_error=0.001)
+
+t1 = time.time()
+fe.initialize()
+if not os.path.exists(current_path + '/%s_results.txt' % name):
+    fe.solve(tol_error=0.001)
+    np.savetxt(current_path + '/%s_results.txt' % name, fe.GC.cpu().numpy())
+else:
+    fe.GC = torch.from_numpy(
+        np.loadtxt(current_path + '/%s_results.txt' % name)).to(fe.nodes.device).type(fe.nodes.dtype)
 
 GC0 = fe.GC.clone().detach()
 RGC0 = fe._GC2RGC(GC0)
@@ -72,7 +90,7 @@ ADJu = torch.from_numpy(ADJu).to(GC0.device).type(GC0.dtype)
 nodes0 = fe.nodes.clone().detach().requires_grad_(True)
 
 fe.nodes = nodes0
-fe.initialize(RGC0=RGC0)
+fe.initialize()
 
 R = fe._assemble_Stiffness_Matrix(RGC=RGC0)[0]
 
@@ -83,28 +101,28 @@ grad_pos = torch.autograd.grad(work, nodes0)[0]
 
 index_remain = fe.get_surface_elements('surface_1_All')[0]._elems.flatten().unique()
 
-show_quiver3d(nodes0[index_remain].T, grad_pos[index_remain].T)
+# show_quiver3d(nodes0[index_remain].T, grad_pos[index_remain].T)
 
 epsilon = 1e-3
 test_pair = ((2, 1), (10, 0), (5, 1))
 
-# index_test = torch.where(grad_pos.abs() > 0.0001)
+index_test = torch.where(grad_pos.abs() > 0.0001)
 
-# for i in range(index_test[0].shape[0]):
-#     indtest1 = index_test[0][i].item()
-#     indtest2 = index_test[1][i].item()
-#     if (nodes0[indtest1, 2] == 0) or (nodes0[indtest1, 2] == 80):
-#         continue
-#     fe.nodes = nodes0.detach().clone()
-#     fe.nodes[indtest1, indtest2] += epsilon
-#     fe.solve(tol_error=0.001, RGC0=RGC0)
-#     GC1 = fe.GC.clone().detach()
+for i in range(index_test[0].shape[0]):
+    indtest1 = index_test[0][i].item()
+    indtest2 = index_test[1][i].item()
+    if (nodes0[indtest1, 2] == 0) or (nodes0[indtest1, 2] == 70):
+        continue
+    fe.nodes = nodes0.detach().clone()
+    fe.nodes[indtest1, indtest2] += epsilon
+    fe.solve(tol_error=1e-6, RGC0=RGC0)
+    GC1 = fe.GC.clone().detach()
 
-#     diff = (GC1 - GC0)[-2] / epsilon
+    diff = (GC1 - GC0)[-2] / epsilon
 
-#     print('ind:', (indtest1, indtest2))
-#     print('diff:', diff.item())
-#     print('grad_pos:', grad_pos[indtest1, indtest2].item())
-#     print('error:', abs(diff - grad_pos[indtest1, indtest2].item()) / abs(diff))
-#     print('\n\n')
+    print('ind:', (indtest1, indtest2))
+    print('diff:', diff.item())
+    print('grad_pos:', grad_pos[indtest1, indtest2].item())
+    print('error:', abs(diff - grad_pos[indtest1, indtest2].item()) / abs(diff))
+    print('\n\n')
 

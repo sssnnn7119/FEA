@@ -1,0 +1,592 @@
+from __future__ import annotations
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..Main import FEA_Main
+    
+import torch
+from . import linear_solver
+
+class StaticImplicitSolver:
+
+    # region solve iteration
+    def assemble_force(self, force, GC0: torch.Tensor = None) -> torch.Tensor:
+        if force.dim() == 1:
+            force = force.unsqueeze(0)
+        R = force.clone()
+        if GC0 is None:
+            GC0 = self.GC
+        RGC = self._GC2RGC(GC0)
+        for c in self.constraints.values():
+            for i in range(R.shape[0]):
+                R_new = c.modify_R(RGC, force[i].flatten())
+                R[i] += R_new
+
+        R = R[:, self.RGC_remain_index_flatten]
+
+        return R
+
+    def _assemble_Stiffness_Matrix(self,
+                                   RGC: list[torch.Tensor],):
+        """
+        Assemble the stiffness matrix.
+
+        Args:
+            RGC (list[torch.Tensor]): The redundant generalized coordinates.
+
+        Returns:
+            tuple: A tuple containing the right-hand side vector, the indices of the stiffness matrix, and the values of the stiffness matrix.
+                -
+        """
+        #region evaluate the structural K and R
+        R0, K_indices, K_values = self._assemble_generalized_Matrix(
+            RGC)
+        # endregion
+        R, K_indices, K_values = self._assemble_reduced_Matrix(
+            RGC, R0, K_indices, K_values)
+
+        return R, K_indices, K_values
+
+    def _assemble_generalized_Matrix(self,
+                                     RGC: list[torch.Tensor],):
+
+        #region evaluate the structural K and R
+        t0 = time.time()
+        K_values = []
+        K_indices = []
+        R_values = []
+        R_indices = []
+
+        for e in self.elems.values():
+            Ra_indice, Ra_values, Ka_indice, Ka_value = e.structural_Force(
+                RGC=RGC)
+            K_values.append(Ka_value)
+            K_indices.append(Ka_indice)
+            R_values.append(Ra_values)
+            R_indices.append(Ra_indice)
+        t1 = time.time()
+
+        ff = []
+        for f in self.loads.values():
+            Rf_indice, Rf_values, Kf_indice, Kf_value = f.get_stiffness(
+                RGC=RGC)
+            K_values.append(-Kf_value)
+            K_indices.append(Kf_indice)
+            R_values.append(-Rf_values)
+            R_indices.append(Rf_indice)
+
+            ff.append(torch.zeros(self.RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
+        t2 = time.time()
+        # endregion
+
+        K_indices = torch.cat(K_indices, dim=1)
+        K_values = torch.cat(K_values, dim=0)
+        R_indices = torch.cat(R_indices, dim=0)
+        R_values = torch.cat(R_values, dim=0)
+
+        R0 = torch.zeros(self.RGC_list_indexStart[-1])
+        # Convert R_indices to int64 explicitly for scatter operation
+        R0.scatter_add_(0, R_indices.to(torch.int64), R_values)
+        return R0, K_indices, K_values
+
+    def _assemble_reduced_Matrix(self, RGC: list[torch.Tensor],
+                                 R0: torch.Tensor, K_indices: torch.Tensor,
+                                 K_values: torch.Tensor):
+        t0 = time.time()
+        R = R0.clone()
+        #region consider the constraints
+        for c in self.constraints.values():
+            R_new, Kc_indices, Kc_values = c.modify_R_K(
+                RGC, R0, K_indices, K_values)
+            K_indices = torch.cat([K_indices, Kc_indices], dim=1)
+            K_values = torch.cat([K_values, Kc_values])
+            R += R_new
+        t4 = time.time()
+        #endregion
+
+        # get the global stiffness matrix and force vector
+        index_remain = self.RGC_remain_index_flatten[K_indices[0].cpu(
+        )] & self.RGC_remain_index_flatten[K_indices[1].cpu()]
+        K_values = K_values[index_remain]
+        K_indices = K_indices[:, index_remain]
+        t44 = time.time()
+
+        K_indices[0] = K_indices[0].unique(return_inverse=True)[1]
+        K_indices[1] = K_indices[1].unique(return_inverse=True)[1]
+
+        t5 = time.time()
+
+        R = R[self.RGC_remain_index_flatten]
+
+        t6 = time.time()
+        return R, K_indices, K_values
+
+    def _total_Potential_Energy(self,
+                                RGC: list[torch.Tensor]):
+        """
+        Calculate the total potential energy of the finite element model.
+
+        Args:
+            RGC (list[torch.Tensor]): The redundant generalized coordinates.
+
+        Returns:
+            float: The total potential energy.
+        """
+
+        # structural energy
+        energy = 0
+        for e in self.elems.values():
+            energy = energy + e.potential_Energy(RGC=RGC)
+
+        # force potential
+        for f in self.loads.values():
+            energy = energy - f.get_potential_energy(RGC=RGC)
+
+        return energy
+
+    def _line_search(self,
+                     GC0: torch.Tensor,
+                     dGC: torch.Tensor,
+                     R: torch.Tensor,
+                     energy0: float, *args, **kwargs):
+        # line search
+        alpha = 1.0
+        beta = float('inf')
+        c1 = 0.3
+        c2 = 0.4
+        dGC0 = dGC.clone()
+        deltaE = (dGC * R).sum()
+
+        if deltaE > 0:
+            dGC = -dGC
+            deltaE = -deltaE
+            print('the newton dirction is not the decrease direction')
+
+        if torch.isnan(dGC).sum() > 0 or torch.isinf(dGC).sum() > 0:
+            dGC = -R
+            deltaE = (dGC * R).sum()
+
+        # if abs(deltaE / energy0) < tol_error:
+        #     return 1, GC0
+
+        loopc2 = 0
+        while True:
+            GCnew = GC0 + alpha * dGC
+            # GCnew.requires_grad_()
+            energy_new = self._total_Potential_Energy(
+                RGC=self._GC2RGC(GCnew))
+
+            if torch.isnan(energy_new) or torch.isinf(
+                    energy_new) or \
+                energy_new > energy0 + c1 * deltaE * alpha or \
+                (alpha * dGC).abs().max() > self._maximum_step_length:
+                alpha = 0.5 * alpha
+                if alpha < 1e-12:
+                    alpha = 0.0
+                    GCnew = GC0.clone()
+                    energy_new = energy0
+                    break
+            else:
+                # Rnew = -torch.autograd.grad(energy_new, GCnew)[0]
+                # if torch.dot(Rnew, dGC) > c2 * deltaE:
+                #     beta = alpha
+                #     alpha = 0.6 * (alpha + beta)
+                # elif torch.dot(Rnew, dGC) < -c2 * deltaE:
+                #     beta = alpha
+                #     alpha = 0.4 * (alpha + beta)
+                # else:
+                break
+            loopc2 += 1
+            if loopc2 > 20:
+                c2 = 1000000000000000
+
+        # if abs(alpha) < 1e-3:
+        #     # gradient direction line search
+        #     alpha = 1
+        #     dGC = R
+        #     while True:
+        #         GCnew = GC0 + alpha * dGC
+        #         energy_new = self._total_Potential_Energy(
+        #             RGC=self._GC2RGC(GCnew))
+        #         if energy_new < energy0:
+        #             # pressure *= 1.2
+        #             # pressure = min(pressure0, pressure)
+        #             break
+        #         alpha *= 0.8
+        #         if abs(alpha) < 1e-10:
+        #             alpha = 0.0
+        #             GCnew = GC0.clone()
+        #             energy_new = energy0
+        #             break
+
+        # if abs(alpha) < 1e-3:
+        #     alpha = 1
+        #     GCnew = GC0 + alpha * dGC0
+        return alpha, GCnew.detach(), energy_new.detach()
+
+    def _solve_iteration(self,
+                         RGC: list[torch.Tensor],
+                         tol_error: float):
+
+        GC = self._RGC2GC(RGC)
+        RGC = self._GC2RGC(GC)
+
+        # iteration now
+        self._iter_now = 0
+
+        # initialize the time
+        t00 = time.time()
+
+        # initialize the energy
+        energy = [
+            self._total_Potential_Energy(RGC=RGC)
+        ]
+
+        # check the initial energy, if nan, reinitialize the RGC
+        if torch.isnan(energy[-1]):
+            for i in range(len(self.RGC)):
+                RGC[i] = torch.randn_like(self.RGC[i]) * 1e-10
+
+            GC = self._RGC2GC(RGC)
+            energy[-1] = self._total_Potential_Energy(
+                RGC=RGC)
+        dGC = torch.zeros_like(GC)
+
+        # record the number of low alpha
+        low_alpha = 0
+        alpha = 0
+
+        # begin the iteration
+        while True:
+
+            if self._iter_now > self.maximum_iteration:
+                print('maximum iteration reached')
+                self.GC = GC
+                return False
+
+            # calculate the force vector and tangential stiffness matrix
+            t1 = time.time()
+            R, K_indices, K_values = self._assemble_Stiffness_Matrix(
+                RGC=RGC)
+
+            
+
+            self._iter_now += 1
+
+            # evaluate the newton direction
+            t2 = time.time()
+            dGC = self._solve_linear_equation(K_indices=K_indices,
+                                              K_values=K_values,
+                                              R=-R,
+                                              iter_now=self._iter_now,
+                                              alpha0=alpha,
+                                              tol_error=tol_error,
+                                              dGC0=dGC).flatten()
+
+
+
+
+            # line search
+            t3 = time.time()
+            alpha, GCnew, energynew = self._line_search(
+                GC, dGC, R, energy[-1])
+
+            if alpha==0 and R.abs().max() > tol_error:
+                self.GC = GC
+                return False
+
+            # if convergence has difficulty, reduce the load percentage
+            if alpha < 0.1:
+                low_alpha += 1
+            else:
+                low_alpha -= 5
+                if low_alpha < 0:
+                    low_alpha = 0
+
+            if low_alpha > 50:
+                if R.abs().max() < 1e-3:
+                    print('low alpha, but convergence achieved')
+                    self.GC = GC
+                    break
+                return False
+
+            # update the GC
+            GC = GCnew
+
+            # update the RGC
+            RGC = self._GC2RGC(GC)
+
+            # self.show_surface(nodes=self.nodes+RGC[0])
+
+            # update the energy
+            energynew = self._total_Potential_Energy(
+                RGC=RGC)
+            energy.append(energynew)
+
+            # reinitialize the objects
+            # for e in self.elems.values():
+            #     e.reinitialize(RGC=RGC)
+
+            # for f in self.loads.values():
+            #     f.reinitialize(RGC=RGC)
+
+            # for c in self.constraints.values():
+            #     c.reinitialize(RGC=RGC)
+
+            t4 = time.time()
+
+            # return the index to the first line
+            if self._iter_now > 0:
+                print('\033[1A', end='')
+                print('\033[1A', end='')
+                print('\033[K', end='')
+
+            print(  "{:^8}".format("iter") + \
+                    "{:^8}".format("alpha") + \
+                    "{:^15}".format("total") + \
+                    "{:^15}".format("energy") + \
+                    "{:^15}".format("error") + \
+                    "{:^15}".format("assemble") + \
+                    "{:^15}".format("linearEQ") + \
+                    "{:^15}".format("line search") + \
+                    "{:^15}".format("step"))
+
+            print(  "{:^8}".format(self._iter_now) + \
+                    "{:^8.2f}".format(alpha) + \
+                    "{:^15.2f}".format(t4 - t00) + \
+                    "{:^15.4e}".format(energy[-1]) + \
+                    "{:^15.4e}".format(R.abs().max()) + \
+                    "{:^15.2f}".format(t2 - t1) + \
+                    "{:^15.2f}".format(t3 - t2) + \
+                    "{:^15.2f}".format(t4 - t3) + \
+                    "{:^15.2f}".format(t4 - t1))
+            
+            if dGC.abs().max() < tol_error and R.abs().max() < tol_error:
+                break
+        self.GC = GC
+        return True
+
+    __low_alpha_count = 0
+
+    def _solve_mixed_method(self,
+                         RGC: list[torch.Tensor],
+                         tol_error: float):
+        """
+        Solve the finite element analysis problem using a mixed method.
+        if the number of iterations is less than 10, use lbfgs method,
+        otherwise use newton method.
+
+        Args:
+            RGC (list[torch.Tensor]): The redundant generalized coordinates.
+            tol_error (float): The tolerance error for convergence.
+
+        Returns:
+            bool: True if the solution converged, False otherwise.
+        """
+
+        GC = self._RGC2GC(RGC)
+
+        # iteration now
+        iter_now = 0
+        max_iterations = 100
+        tol_convergence = tol_error
+        energy = [self._total_Potential_Energy(RGC=RGC)]
+        low_alpha_count = 0
+        stagnation_counter = 0
+        last_error = float('inf')
+        method = "lbfgs"  # Start with Newton method
+        
+        t00 = time.time()
+        
+        # Initialize dGC for tracking
+        step = torch.zeros_like(GC)
+        
+        while iter_now < max_iterations:
+            # Calculate current error
+            R, K_indices, K_values = self._assemble_Stiffness_Matrix(
+            RGC=self._GC2RGC(GC))
+            current_error = R.abs().max().item()
+            
+            # Print iteration header (only at start or when method changes)
+            if iter_now == 0 or method_changed:
+                print(f"\nUsing {method.upper()} method")
+                print("{:^8} {:^10} {:^15} {:^15} {:^15}".format(
+                    "Iter", "Method", "Energy", "Max Error", "Time (s)"))
+                method_changed = False
+            
+            # Print current iteration status
+            print("{:^8d} {:^10} {:^15.4e} {:^15.4e} {:^15.2f}".format(
+            iter_now, method, energy[-1], current_error, time.time() - t00))
+            
+            # Check convergence
+            if current_error < tol_convergence:
+                print(f"\nConverged after {iter_now} iterations!")
+                break
+            
+            # Check for stagnation
+            if abs(current_error - last_error) < tol_convergence * 0.01:
+                stagnation_counter += 1
+            else:
+                stagnation_counter = 0
+                last_error = current_error
+            
+            # Method switching logic
+            method_changed = False
+            if method == "newton" and (stagnation_counter > 3 or low_alpha_count > 2):
+                method = "lbfgs"
+                method_changed = True
+                stagnation_counter = 0
+                low_alpha_count = 0
+            elif method == "lbfgs" and iter_now % 5 == 4:  # Switch back to Newton occasionally
+                method = "newton"
+                method_changed = True
+            
+            # Step with the selected method
+            if method == "newton":
+                # Newton step
+                energynew, step, alpha = self._step_newton(GC, step, energy, iter_now, sub_iter_num=10)
+                # Track small step sizes
+                if alpha < 0.01:
+                    low_alpha_count += 1
+            else:
+                # L-BFGS step
+                energynew, step = self._step_lbfgs(GC, energy, iter_now, sub_iter_num=20)
+            
+            # Update GC and RGC
+            GC = GC + step
+            RGC = self._GC2RGC(GC)
+            energy.append(energynew)
+            
+            iter_now += 1
+            
+        if iter_now >= max_iterations:
+            print("\nReached maximum iterations without convergence")
+            return False
+            
+        self.GC = GC
+        return True
+
+    def _step_newton(self, GC: torch.Tensor, dGC0: torch.Tensor, energy, iter_now, sub_iter_num = 10):
+        """
+        Perform a single step of the Newton-Raphson method.
+
+        Args:
+            GC (torch.Tensor): The current generalized coordinates.
+            energy (list): List to store the energy values.
+            iter_now (int): Current iteration number.
+        Returns:
+            energynew (float): The new energy value after the step.
+            dGC (torch.Tensor): The change in generalized coordinates.
+        """
+        x_now = torch.zeros_like(GC)
+
+        for i in range(sub_iter_num):
+            RGC = self._GC2RGC(GC)
+        
+        # calculate the force vector and tangential stiffness matrix
+        R, K_indices, K_values = self._assemble_Stiffness_Matrix(
+            RGC=RGC)
+
+        # solve the linear equation
+        dGC = self._solve_linear_equation(K_indices=K_indices,
+                                            K_values=K_values,
+                                            R=-R,
+                                            iter_now=iter_now,
+                                            dGC0=dGC0).flatten()
+        
+        # backtracking line search to find the step size
+        alpha, GCnew, energynew = self._line_search(
+            GC, dGC, R, energy[-1])
+        
+        return energynew, dGC * alpha, alpha
+
+    def _step_lbfgs(self, GC: torch.Tensor, energy, iter_now, sub_iter_num = 50):
+        """
+        solve the linear perturbation problem using L-BFGS method.
+
+        Args:
+            GC (torch.Tensor): The current generalized coordinates.
+            energy (list): List to store the energy values.
+            iter_now (int): Current iteration number.
+            sub_iter_num (int, optional): Number of sub-iterations for L-BFGS. Defaults to 50.
+
+        Returns:
+            energynew (float): The new energy value after the step.
+            dGC (torch.Tensor): The change in generalized coordinates.
+        """
+
+        x_now = torch.zeros_like(GC).requires_grad_()
+
+        def closure(x_now: torch.Tensor):
+            RGC = self._GC2RGC(GC+x_now)
+            energynew = self._total_Potential_Energy(RGC=RGC)
+            return energynew
+
+        opt = _lbfgs.LBFGS(closure=closure, num_limit=500)
+        for i in range(sub_iter_num):
+            alpha, dk = opt.step(x_now)
+            x_now.data += dk * alpha
+            # print(f"LBFGS Iteration {i+1}/{sub_iter_num}, energy: {closure(x_now).item():.4e}\r", end='')
+
+        # print()  # for a new line after the last iteration
+        # print(f"Final energy after L-BFGS: {closure(x_now).item():.4e}")
+
+        return closure(x_now).item(), x_now.detach()
+
+    def _solve_linear_equation(self,
+                               K_indices: torch.Tensor,
+                               K_values: torch.Tensor,
+                               R: torch.Tensor,
+                               iter_now: int = 0,
+                               alpha0: float = None,
+                               dGC0: torch.Tensor = None,
+                               tol_error=1e-8):
+        if dGC0 is None:
+            dGC0 = torch.zeros_like(R)
+
+        if alpha0 is None:
+            alpha0 = 1e-10
+
+        # result = torch.sparse.spsolve(torch.sparse_coo_tensor(K_indices, K_values, [R.shape[0], R.shape[0]]).to_sparse_csr(), R)
+
+        # precondition for the linear equation
+        index = torch.where(K_indices[0] == K_indices[1])[0]
+        diag = torch.zeros_like(R).scatter_add(0, K_indices[0, index],
+                                               K_values[index]).abs().sqrt()
+        diag[diag==0] = 1.0  # Avoid division by zero
+        K_values_preconditioned = K_values / diag[K_indices[0]]
+        K_values_preconditioned = K_values_preconditioned / diag[K_indices[1]]
+        R_preconditioned = R / diag
+        x0 = dGC0 * diag
+
+        # record the number of low alpha
+        if alpha0 < 1e-1:
+            self.__low_alpha_count += 1
+        else:
+            self.__low_alpha_count = 0
+
+        if self.__low_alpha_count > 3 or R_preconditioned.abs().max() < 1e-3 or K_values_preconditioned.device.type == 'cpu':
+            dx = _linear_Solver.pypardiso_solver(K_indices,
+                                                 K_values_preconditioned,
+                                                 R_preconditioned)
+            self.__low_alpha_count = 0
+        else:
+            if iter_now % 20 == 0 or self.__low_alpha_count > 0:
+                dx = _linear_Solver.conjugate_gradient(K_indices,
+                                                       K_values_preconditioned,
+                                                       R_preconditioned,
+                                                       x0,
+                                                       tol=1e-5,
+                                                       max_iter=6000)
+            else:
+                dx = _linear_Solver.conjugate_gradient(K_indices,
+                                                       K_values_preconditioned,
+                                                       R_preconditioned,
+                                                       x0,
+                                                       tol=1e-5,
+                                                       max_iter=1500)
+        result = dx.to(R.dtype) / diag
+        return result
+
+    # endregion
+    
