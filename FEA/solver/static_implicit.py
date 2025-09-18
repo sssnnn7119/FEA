@@ -52,11 +52,8 @@ class StaticImplicitSolver(BaseSolver):
         """
         # initialize the RGC
         t0 = time.time()
-        self.initialize(RGC0=RGC0)
-        t1 = time.time()
-        print('Initialization complete, time taken: %.2f seconds\n' % (t1 - t0))
         # start the iteration
-        result = self._solve_iteration(RGC=self.assembly.RGC,
+        result = self._solve_iteration(RGC=RGC0 if RGC0 is not None else self.assembly.RGC,
                                          tol_error=tol_error)
         
         self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly.GC))
@@ -64,7 +61,7 @@ class StaticImplicitSolver(BaseSolver):
 
         # print the information
         print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
-        R = self.assembly._assemble_Stiffness_Matrix(RGC=self.assembly.RGC)[0]
+        R = self.assembly.assemble_Stiffness_Matrix(RGC=self.assembly.RGC)[0]
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
@@ -92,6 +89,7 @@ class StaticImplicitSolver(BaseSolver):
             print('the newton dirction is not the decrease direction')
 
         if torch.isnan(dGC).sum() > 0 or torch.isinf(dGC).sum() > 0:
+            raise ValueError('dGC has nan or inf')
             dGC = -R
             deltaE = (dGC * R).sum()
 
@@ -129,14 +127,14 @@ class StaticImplicitSolver(BaseSolver):
             if loopc2 > 20:
                 c2 = 1000000000000000
 
-        # if abs(alpha) < 1e-3:
+        # if abs(alpha) < 1e-6:
         #     # gradient direction line search
         #     alpha = 1
         #     dGC = R
         #     while True:
         #         GCnew = GC0 + alpha * dGC
-        #         energy_new = self._total_Potential_Energy(
-        #             RGC=self._GC2RGC(GCnew))
+        #         energy_new = self.assembly._total_Potential_Energy(
+        #             RGC=self.assembly._GC2RGC(GCnew))
         #         if energy_new < energy0:
         #             # pressure *= 1.2
         #             # pressure = min(pressure0, pressure)
@@ -195,7 +193,7 @@ class StaticImplicitSolver(BaseSolver):
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
-            R, K_indices, K_values = self.assembly._assemble_Stiffness_Matrix(
+            R, K_indices, K_values = self.assembly.assemble_Stiffness_Matrix(
                 RGC=RGC)
 
             self._iter_now += 1
@@ -215,8 +213,13 @@ class StaticImplicitSolver(BaseSolver):
 
             # line search
             t3 = time.time()
-            alpha, GCnew, energynew = self._line_search(
-                GC, dGC, R, energy[-1])
+            if R.abs().max() > 1e-3:
+                alpha, GCnew, energynew = self._line_search(
+                    GC, dGC, R, energy[-1])
+            else:
+                alpha = 1.
+                GCnew = GC + dGC
+                energynew = self.assembly._total_Potential_Energy(RGC = self.assembly._GC2RGC(GCnew))
 
             if alpha==0 and R.abs().max() > tol_error:
                 self.assembly.GC = GC
@@ -225,14 +228,14 @@ class StaticImplicitSolver(BaseSolver):
                 break
 
             # if convergence has difficulty, reduce the load percentage
-            if alpha < 0.1:
+            if alpha < 0.01:
                 low_alpha += 1
             else:
                 low_alpha -= 5
                 if low_alpha < 0:
                     low_alpha = 0
 
-            if low_alpha > 50:
+            if low_alpha > 20:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
                     self.assembly.GC = GC

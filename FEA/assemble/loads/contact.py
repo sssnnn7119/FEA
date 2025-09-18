@@ -10,11 +10,11 @@ from ..elements import BaseSurface
 class ContactBase(BaseLoad):
     def __init__(self,
                  penalty_distance_g: float = 0.1,
-                 penalty_factor_g: float = 0.4,
+                 penalty_factor_g: float = 0.5,
                  penalty_degree: int = 9,
                  penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.5,
-                 penalty_start_f: float = -0.7,
+                 penalty_start_f: float = -0.1,
                  penalty_end_f: float = -0.8):
         """
         Initialize the base contact load with common parameters.
@@ -848,6 +848,9 @@ class Contact(ContactBase):
         if index_remain.shape[0] == 0:
             # No active contact pairs
             return torch.tensor([], dtype=torch.int64), torch.tensor([]), torch.tensor([[], []], dtype=torch.int64), torch.tensor([])
+        
+        if index_remain.shape[0] > 0:
+            print('  Contact pairs: ', index_remain.shape[0])
 
         # Filter all variables
         D = D[:, :, index_remain]

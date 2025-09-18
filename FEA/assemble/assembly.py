@@ -31,10 +31,7 @@ class Assembly:
 
         self.RGC: list[torch.Tensor]
         """
-        record the redundant generalized coordinates\n
-        [0]: translation\n
-        [1]: orientation\n
-        [2]: allocated for other objects\n
+        record the redundant generalized coordinates
         """
 
         self._RGC_size: list[tuple[int]]
@@ -77,6 +74,14 @@ class Assembly:
         Returns:
             None
         """
+
+        # region sort the parts, instances, loads, and constraints
+        self._parts = dict(sorted(self._parts.items()))
+        self._instances = dict(sorted(self._instances.items()))
+        self._loads = dict(sorted(self._loads.items()))
+        self._constraints = dict(sorted(self._constraints.items()))
+        self._reference_points = dict(sorted(self._reference_points.items()))
+        # endregion
 
         # region initialize the RGC
 
@@ -178,18 +183,46 @@ class Assembly:
 
     # region Stiffness Matrix Assembly
 
-    def _assemble_Stiffness_Matrix(self,
-                                   RGC: list[torch.Tensor],):
+    def assemble_force(self, force: torch.Tensor, RGC: list[torch.Tensor] = None, GC: torch.Tensor = None) -> torch.Tensor:
+        
+        if RGC is None:
+            if GC is None:
+                raise ValueError("Either RGC or GC must be provided.")
+            RGC = self._GC2RGC(GC)
+
+        if force.dim() == 1:
+            force = force.unsqueeze(0)
+        R = force.clone()
+        if GC is None:
+            GC = self.GC
+        RGC = self._GC2RGC(GC)
+        for c in self._constraints.values():
+            for i in range(R.shape[0]):
+                R_new = c.modify_R(RGC, force[i].flatten())
+                R[i] += R_new
+
+        R = R[:, self.RGC_remain_index_flatten]
+
+        return R
+    def assemble_Stiffness_Matrix(self,
+                                   RGC: list[torch.Tensor] = None, GC: torch.Tensor = None):
         """
         Assemble the stiffness matrix.
 
         Args:
             RGC (list[torch.Tensor]): The redundant generalized coordinates.
+            GC (torch.Tensor, optional): The generalized coordinates. If provided, it will be converted to RGC internally. Defaults to None.
 
         Returns:
             tuple: A tuple containing the right-hand side vector, the indices of the stiffness matrix, and the values of the stiffness matrix.
                 -
         """
+
+        if RGC is None:
+            if GC is None:
+                raise ValueError("Either RGC or GC must be provided.")
+            RGC = self._GC2RGC(GC)
+
         #region evaluate the structural K and R
         R0, K_indices, K_values = self._assemble_generalized_Matrix(
             RGC)
@@ -245,14 +278,14 @@ class Assembly:
                                  R0: torch.Tensor, K_indices: torch.Tensor,
                                  K_values: torch.Tensor):
         t0 = time.time()
-        R = R0.clone()
+        R = R0
         #region consider the constraints
         for c in self._constraints.values():
             R_new, Kc_indices, Kc_values = c.modify_R_K(
                 RGC, R0, K_indices, K_values)
             K_indices = torch.cat([K_indices, Kc_indices], dim=1)
             K_values = torch.cat([K_values, Kc_values])
-            R += R_new
+            R = R + R_new
         t4 = time.time()
         #endregion
 

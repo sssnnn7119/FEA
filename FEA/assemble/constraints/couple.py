@@ -20,7 +20,7 @@ class Couple(BaseConstraint):
         self._rp_index = self._assembly.get_reference_point(self.rp_name)._RGC_index
         self._couple_index = self._assembly.get_instance(self.instance_name)._RGC_index
 
-        instance = self._assembly._instances[self.instance_name]
+        instance = self._assembly.get_instance(self.instance_name)
 
         index_global = instance.nodes[self.indexNodes]
         self._ref_location = index_global - self._assembly.get_reference_point(self.rp_name).node
@@ -68,7 +68,7 @@ class Couple(BaseConstraint):
 
 
         instance = self._assembly._instances[self.instance_name]
-        R0 = R0[self._assembly.RGC_list_indexStart[instance._RGC_index]:self._assembly.RGC_list_indexStart[instance._RGC_index+1]].view(-1, 3)
+        R_now = R0[self._assembly.RGC_list_indexStart[instance._RGC_index]:self._assembly.RGC_list_indexStart[instance._RGC_index+1]].view(-1, 3)
 
         # basic derivatives
         y = self._ref_location
@@ -133,7 +133,7 @@ class Couple(BaseConstraint):
 
         # R
         # region
-        Rrest = R0[self.indexNodes]
+        Rrest = R_now[self.indexNodes]
 
         Edotv = Rrest.sum(dim=0)
         Edotz = torch.einsum('bj,bjp->p', Rrest, Ydot)

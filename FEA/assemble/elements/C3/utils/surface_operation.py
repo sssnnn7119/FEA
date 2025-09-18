@@ -3,22 +3,22 @@ from calendar import c
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ....Main import FEA_Main
+    from ....part import Part
 
 import torch
 import numpy as np
 import FEA
 
 
-def divide_surface_elements(fe: FEA.FEAController, name_element: str, name_surface: str):
+def divide_surface_elements(part: Part, name_element: str, name_surface: str):
 
-    elems_now: FEA.elements.Element_3D = fe.elems[name_element]
-    surface = fe.surface_sets[name_surface]
+    elems_now: FEA.elements.Element_3D = part.elems[name_element]
+    surface = part.surfaces.get_elements(name_surface)
 
     # find the elements that contain the surface node
     ind_surface_element = []
     for i in range(len(surface)):
-        elem_ind_now = surface[i][0]
+        elem_ind_now = surface[i]._elems.flatten()
         ind_surface_element += elem_ind_now.tolist()
     ind_surface_element = np.array(ind_surface_element, dtype=np.int64)
     ind_surface_element = np.unique(ind_surface_element)

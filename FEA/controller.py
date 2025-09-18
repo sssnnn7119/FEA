@@ -1,4 +1,5 @@
 import os
+from re import T
 import sys
 import time
 import ctypes
@@ -38,7 +39,7 @@ class FEAController():
         self.assembly.initialize(*args, **kwargs)
         self.solver.initialize(assembly=self.assembly, *args, **kwargs)
 
-    def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7) -> bool:
+    def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7, if_initialize: bool = True) -> bool:
         """
         Solves the finite element analysis problem.
 
@@ -49,5 +50,7 @@ class FEAController():
         Returns:
             bool: True if the solution converged, False otherwise.
         """
+        if if_initialize:
+            self.initialize(RGC0=RGC0)
         result = self.solver.solve(RGC0=RGC0, tol_error=tol_error)
         return result
