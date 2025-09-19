@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from .. import Assembly
 import time
 import torch
-from . import linear_solver as _linear_Solver
+from . import _linear_solver
 from .basesolver import BaseSolver
 
 class StaticImplicitSolver(BaseSolver):
@@ -235,7 +235,7 @@ class StaticImplicitSolver(BaseSolver):
                 if low_alpha < 0:
                     low_alpha = 0
 
-            if low_alpha > 20:
+            if low_alpha > 10:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
                     self.assembly.GC = GC
@@ -331,20 +331,20 @@ class StaticImplicitSolver(BaseSolver):
             self.__low_alpha_count = 0
 
         if self.__low_alpha_count > 3 or R_preconditioned.abs().max() < 1e-3 or K_values_preconditioned.device.type == 'cpu':
-            dx = _linear_Solver.pypardiso_solver(K_indices,
+            dx = _linear_solver.pypardiso_solver(K_indices,
                                                  K_values_preconditioned,
                                                  R_preconditioned)
             self.__low_alpha_count = 0
         else:
             if iter_now % 20 == 0 or self.__low_alpha_count > 0:
-                dx = _linear_Solver.conjugate_gradient(K_indices,
+                dx = _linear_solver.conjugate_gradient(K_indices,
                                                        K_values_preconditioned,
                                                        R_preconditioned,
                                                        x0,
                                                        tol=1e-5,
                                                        max_iter=6000)
             else:
-                dx = _linear_Solver.conjugate_gradient(K_indices,
+                dx = _linear_solver.conjugate_gradient(K_indices,
                                                        K_values_preconditioned,
                                                        R_preconditioned,
                                                        x0,

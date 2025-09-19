@@ -62,7 +62,7 @@ t1 = time.time()
 fe.solve(tol_error=0.001)
 
 
-print(fe.assembly.GC)
+print(fe.assembly.GC[-6:])
 print('ok')
 
 

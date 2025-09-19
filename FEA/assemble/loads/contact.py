@@ -10,11 +10,11 @@ from ..elements import BaseSurface
 class ContactBase(BaseLoad):
     def __init__(self,
                  penalty_distance_g: float = 0.1,
-                 penalty_factor_g: float = 0.5,
-                 penalty_degree: int = 9,
+                 penalty_factor_g: float = 1.0,
+                 penalty_degree: int = 5,
                  penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.5,
-                 penalty_start_f: float = -0.1,
+                 penalty_start_f: float = -0.2,
                  penalty_end_f: float = -0.8):
         """
         Initialize the base contact load with common parameters.
