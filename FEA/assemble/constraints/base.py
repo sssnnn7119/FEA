@@ -16,25 +16,17 @@ class BaseConstraint(BaseObj):
     def initialize(self, assembly):
         super().initialize(assembly)
 
-    def modify_RGC_linear(self, RGC: list[torch.Tensor]) -> torch.Tensor:
-        return self.modify_RGC(RGC)
 
     def modify_R_K(self, RGC: list[torch.Tensor], R0: torch.Tensor,
-                   K_indices: torch.Tensor, K_values: torch.Tensor):
+                   K_indices: torch.Tensor = None, K_values: torch.Tensor = None, if_onlyforce: bool = False, *args, **kwargs):
 
         R = torch.sparse_coo_tensor(indices=[[]],
                                     values=[],
                                     size=[self._assembly.RGC_list_indexStart[-1]])
+        if if_onlyforce:
+            return R
         return R, torch.zeros([2, 0], dtype=torch.int64), torch.zeros([0])
 
-    def modify_R(self, RGC: list[torch.Tensor],
-                 R0: torch.Tensor) -> torch.Tensor:
-        R = torch.sparse_coo_tensor(indices=[[]],
-                                    values=[],
-                                    size=[self._assembly.RGC_list_indexStart[-1]])
-        return R
 
-    def modify_K(self, RGC: list[torch.Tensor], R0: torch.Tensor,
-                 K0: torch.Tensor):
-
+    def modify_mass_matrix(self, mass_indices: torch.Tensor, mass_values: torch.Tensor, RGC: list[torch.Tensor]):
         return torch.zeros([2, 0], dtype=torch.int64), torch.zeros([0])

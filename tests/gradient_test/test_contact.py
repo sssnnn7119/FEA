@@ -22,7 +22,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
 name = 'contact_each'
-fem.Read_INP(current_path + '/%s.inp'%name)
+fem.read_inp(current_path + '/%s.inp'%name)
 
 fe = FEA.from_inp(fem)
 fe.solver = FEA.solver.StaticImplicitSolver()

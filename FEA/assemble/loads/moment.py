@@ -16,7 +16,10 @@ class Moment(BaseLoad):
         self._indices_force = torch.arange(assembly.RGC_list_indexStart[self.rp_index]+3, assembly.RGC_list_indexStart[self.rp_index]+6)
 
     def get_stiffness(self,
-                RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+                RGC: list[torch.Tensor], if_onlyforce=False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+
+        if if_onlyforce:
+            return self._indices_force, self.moment
 
         return self._indices_force, self.moment, torch.zeros([2, 0], dtype=torch.int), torch.zeros([0])
 

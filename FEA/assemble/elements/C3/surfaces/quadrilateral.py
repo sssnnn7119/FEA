@@ -33,15 +33,25 @@ class Q4(BaseSurface):
         self.shape_function.append(shape_i)
         
         # Define Gaussian points for Q4 surface (2x2 integration)
-        g = 1.0 / torch.sqrt(torch.tensor(3.0))
-        pp = torch.tensor([[-g, -g],
-                          [g, -g],
-                          [g, g],
-                          [-g, g]])
-        self.gaussian_weight = torch.tensor([1.0, 1.0, 1.0, 1.0])
+        # g = 1.0 / torch.sqrt(torch.tensor(3.0))
+        # pp = torch.tensor([[-g, -g],
+        #                   [g, -g],
+        #                   [g, g],
+        #                   [-g, g]])
+        # self.gaussian_weight = torch.tensor([1.0, 1.0, 1.0, 1.0])
+
+        # Define Gaussian points for Q8 surface (3x3 integration)
+        g = torch.sqrt(torch.tensor(3.0/5.0))
+        pp = torch.tensor([[-g, -g], [0.0, -g], [g, -g],
+                          [-g, 0.0], [0.0, 0.0], [g, 0.0],
+                          [-g, g], [0.0, g], [g, g]])
+        w1, w2 = 5.0/9.0, 8.0/9.0
+        self.gaussian_weight = torch.tensor([w1*w1, w2*w1, w1*w1,
+                                           w1*w2, w2*w2, w1*w2,
+                                           w1*w1, w2*w1, w1*w1])
 
         self.num_nodes_per_elem = 4
-        self._num_gaussian = 4
+        self._num_gaussian = 9
         
         # Pre-load Gaussian points for Q4 surface
         self._pre_load_gaussian(pp, fea.nodes)

@@ -78,7 +78,7 @@ class Pressure(BaseLoad):
         self._Vdot_2_indices = torch.cat(_Vdot_2_indices, dim=1) + index_offset
         
     def get_stiffness(self,
-                RGC: list[torch.Tensor]):
+                RGC: list[torch.Tensor], if_onlyforce=False, *args, **kwargs):
         
         node_pos = self._assembly.get_instance(self.instance_name).nodes + RGC[self._load_index]
 
@@ -113,23 +113,21 @@ class Pressure(BaseLoad):
 
             Vdra = 1 / 3 * torch.einsum('g, geim->geim', surf_elem.gaussian_weight, det_radra)
 
+
+
+            Vdot_values = torch.einsum('gma, geim->eia', shape_fun_added, Vdra)
+
+            if if_onlyforce:
+                continue
+
             part_I = torch.einsum('geim, genj->geimjn', det_radra, inv_ra)
             part_II = part_I.permute([0, 1, 2, 5, 4, 3])
 
             Vdra_2 = 1 / 3 * torch.einsum('g, geimjn->geimjn', surf_elem.gaussian_weight, part_I - part_II)
-
-            Vdot_values = torch.einsum('gma, geim->eia', shape_fun_added, Vdra)
             Vdot_2_values = torch.einsum('gma, gnb, geimjn->eiajb', shape_fun_added, shape_fun_added, Vdra_2)
-
-
-
-            # V_now = surf_elem.gaussian_weight.view([-1, 1]) * r_added_gaussian.det() / 3
-            
-            # Vdot = torch.zeros_like(node_pos, dtype=self._fea.nodes.dtype, device=self._fea.nodes.device).flatten().scatter_add_(
-            #     0, Vdot_indices.flatten(), Vdot_values.flatten()).reshape([-1, 3])
-            
-            # Vdot_2 = torch.sparse_coo_tensor(indices=Vdot_2_indices,
-            #     values=Vdot_2_values.flatten(), size=[node_pos.numel()]*2)
+        
+        if if_onlyforce:
+            return self._Vdot_indices.flatten(), -self.pressure * Vdot_values.flatten()
 
         return self._Vdot_indices.flatten(), -self.pressure * Vdot_values.flatten(), self._Vdot_2_indices, -self.pressure * Vdot_2_values.flatten()
 

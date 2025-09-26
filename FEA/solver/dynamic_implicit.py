@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from errno import ENETRESET
+from math import e
+from telnetlib import GA
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -11,7 +14,7 @@ from .basesolver import BaseSolver
 
 class DynamicImplicitSolver(BaseSolver):
 
-    def __init__(self, maximum_iteration: int = 10000) -> None:
+    def __init__(self, maximum_iteration: int = 10000, deltaT: float = 1e-2, time_end: float = 1.0, tol_error: float = 1e-5) -> None:
         """
         Initialize the FEA class.
 
@@ -34,24 +37,115 @@ class DynamicImplicitSolver(BaseSolver):
         The allowable maximum step length for each step.
         """
 
+        self.tol_error: float = tol_error
+        """
+        The tolerance error for the solver.
+        """
+
         self.__low_alpha_count = 0
+        
+        self._GC_list: list[torch.Tensor] = None
+        """ The generalized coordinates of the nodes. """
 
-        self.assembly: Assembly = None
-        """ The assembly of the finite element model. """
-
-        self._velocity: torch.Tensor = None
+        self._GV_list: list[torch.Tensor] = None
         """ The velocity of the nodes. """
 
-        self._acceleration: torch.Tensor = None
-        """ The acceleration of the nodes. """
+        self._time_list: list[float] = []
+        """ The time of each step. """
 
-        self._newmark_beta = 0.25
-        """ The Newmark-beta parameter for time integration. """
+        self._deltaT : float = deltaT
+        """ The time increment of each step. """
 
-        self._newmark_gamma = 0.5
-        """ The Newmark-gamma parameter for time integration. """
+        self._time_end : float = time_end
+        """ The end time of the simulation. """
 
-    def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7) -> bool:
+        self._gamma : float = 0.5
+        """ The Newmark gamma parameter. """
+
+        self._beta : float = 0.25
+        """ The Newmark beta parameter. """
+
+    def initialize(self, assembly: Assembly):
+        """
+        Initialize the solver with the assembly and initial conditions.
+        """
+        super().initialize(assembly=assembly)
+        self.assembly.initialize_dynamic()
+
+        self._GC_list = []
+        self._GV_list = []
+        self._GA_list = []
+        self._time_list = []
+        self._deltaT_list = []
+
+    def set_deltaT(self, deltaT: float):
+        """
+        Update the time increment for the next step.
+
+        Args:
+            deltaT (float): The time increment for the next step.
+        """
+        self._deltaT = deltaT
+
+    def get_total_energy(self, GC_now: torch.Tensor, GC0: torch.Tensor, GV0: torch.Tensor, GA0: torch.Tensor, deltaT: float = None) -> float:
+
+        if deltaT is None:
+            deltaT = self._deltaT
+
+        potential_energy = self.assembly._total_Potential_Energy(GC=GC_now)
+
+        mass_indices, mass_values = self.assembly.assemble_mass_matrix(GC_now=GC_now)
+        GV_now = self.get_next_velocity(GC_now=GC_now, GC0=GC0, GV0=GV0, GA0=GA0, deltaT=deltaT)[0]
+        kinetic_energy_all = mass_values * GV_now[mass_indices[0]] * GV_now[mass_indices[1]] / 2
+        kinetic_energy = kinetic_energy_all.sum()
+
+        return potential_energy + kinetic_energy
+    
+    def get_incremental_energy(self, GC_now: torch.Tensor, GC_pre: torch.Tensor, deltaT: float = None) -> float:
+
+        if deltaT is None:
+            deltaT = self._deltaT
+
+        potential_energy = self.assembly._total_Potential_Energy(GC=GC_now)
+
+        mass_indices, mass_values = self.assembly.assemble_mass_matrix(GC_now=GC_now)
+        GC_diff = GC_now - GC_pre
+        kinetic_energy_all = mass_values * GC_diff[mass_indices[0]] * GC_diff[mass_indices[1]] / (2 * self._beta * deltaT ** 2)
+        kinetic_energy = kinetic_energy_all.sum()
+
+        return potential_energy + kinetic_energy
+
+    def get_incremental_stiffness_matrix(self, GC_now: torch.Tensor, GC_pre: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calculate the stiffness matrix for the current configuration.
+
+        Args:
+            GC_now (torch.Tensor): Current generalized coordinates.
+            GC0 (torch.Tensor): Previous generalized coordinates.
+            GV0 (torch.Tensor): Previous velocities.
+            GA0 (torch.Tensor): Previous accelerations.
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Residual force, Indices and values of the stiffness matrix.
+        """
+        # assemble the internal force and stiffness matrix
+        Rv, Kv_indices, Kv_values = self.assembly.assemble_Stiffness_Matrix(GC=GC_now)
+        
+        # assemble the mass matrix
+        mass_indices, mass_values = self.assembly.assemble_mass_matrix(GC_now=GC_now)
+        GC_diff = GC_now - GC_pre
+        Ri_values = mass_values * GC_diff[mass_indices[0]] / (self._beta * self._deltaT ** 2)
+        Ri_indices = mass_indices[1]
+        Ri = torch.zeros_like(GC_now).scatter_add_(0, Ri_indices, Ri_values)
+        Ki_values = mass_values / (self._beta * self._deltaT ** 2)
+        Ki_indices = mass_indices
+
+        K_indices = torch.cat([Kv_indices, Ki_indices], dim=1)
+        K_values = torch.cat([Kv_values, Ki_values], dim=0)
+        R = Rv + Ri
+
+        return R, K_indices, K_values
+
+    def solve(self, GC0: torch.Tensor = None, GV0: torch.Tensor = None, *args, **kwargs) -> bool:
         """
         Solves the finite element analysis problem.
 
@@ -64,29 +158,124 @@ class DynamicImplicitSolver(BaseSolver):
         """
         # initialize the RGC
         t0 = time.time()
-        # start the iteration
-        result = self._solve_iteration(RGC=RGC0 if RGC0 is not None else self.assembly.RGC,
-                                         tol_error=tol_error)
+
+        if GC0 is None:
+            GC0 = self.assembly.GC.clone()
+
+        if GV0 is None:
+            GV0 = torch.zeros_like(self.assembly.GC)
+
+        self._GC_list = [GC0]
+        self._GV_list = [GV0]
+        self._GA_list = [self.get_current_acceleration(GC0=GC0, GV0=GV0)]
+        self._time_list = [0.0]
+        E_history = [self.get_total_energy(GC_now=GC0, GC0=GC0, GV0=GV0, GA0=self._GA_list[-1])]
         
+        # start the iteration
+        iteration = 0
+        while True:
+            print('---' * 8, 'FEA Step %d' % (iteration + 1), '---' * 8)
+            print('time:%.8f, deltaT:%.8f' % (self._time_list[-1], self._deltaT))
+            t0 = time.time()
+
+            GC_pre = self._GC_list[-1] + self._deltaT * self._GV_list[-1] + 0.25 * (self._deltaT ** 2) * self._GA_list[-1]
+
+            GC_now = self._solve_iteration(GC0=self._GC_list[-1],
+                                            GC_pre=GC_pre,
+                                            deltaT=self._deltaT,
+                                            tol_error=self.tol_error)
+            t2 = time.time()
+
+            # print the information
+            print('total_iter:%d, total_time:%.2f' % (iteration, t2 - t0))
+            E = self.get_total_energy(GC_now=GC_now, GC0=self._GC_list[-1], GV0=self._GV_list[-1], GA0=self._GA_list[-1])
+
+            # energy_diff = (E - E_history[-1]).abs() / abs(E_history[-1])
+            # if energy_diff > 1e-2:
+            #     print('energy increase too much, reduce the time step')
+            #     self._deltaT = self._deltaT / 2
+            #     print('new deltaT:%.8f' % self._deltaT)
+            #     print('---' * 8, 'FEA Continued', '---' * 8, '\n')
+            #     continue
+            # elif energy_diff < 1e-3:
+            #     self._deltaT = self._deltaT * 1.2
+
+            print('max_error:%.4e' % (((E - E_history[-1]) / E_history[-1]).abs()))
+            print('---' * 8, 'FEA Continued', '---' * 8, '\n')
+
+            # update the results
+            GVnew, GAnew = self.get_next_velocity(GC_now=GC_now, GC0=self._GC_list[-1], GV0=self._GV_list[-1], GA0=self._GA_list[-1], deltaT=self._deltaT)
+            E_history.append(E)
+            self._GC_list.append(GC_now)
+            self._GV_list.append(GVnew)
+            self._GA_list.append(GAnew)
+            self._time_list.append(self._time_list[-1] + self._deltaT)
+
+            iteration += 1
+            if self._time_list[-1] >= self._time_end:
+                break
+        
+        self.GC=self._GC_list[-1]
         self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly.GC))
         t2 = time.time()
 
         # print the information
-        print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
+        print('total_time:%.2f' % (t2 - t0))
         R = self.assembly.assemble_Stiffness_Matrix(RGC=self.assembly.RGC)[0]
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
-        return result
-   
+        return True 
 
+    def get_next_velocity(self, GC_now: torch.Tensor, GC0: torch.Tensor, GV0: torch.Tensor, GA0: torch.Tensor, deltaT: float) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calculate the velocity and acceleration based on the Newmark-beta method.
+
+        Args:
+            GC_now (torch.Tensor): Current generalized coordinates.
+            GC0 (torch.Tensor): Previous generalized coordinates.
+            GV0 (torch.Tensor): Previous velocities.
+            GA0 (torch.Tensor): Previous accelerations.
+            deltaT (float): Time increment.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Current velocities and accelerations.
+        """
+        # Newmark-beta method for velocity and acceleration update
+
+        GV_now = self._gamma / (self._beta * deltaT) * (GC_now - GC0) + (1 - self._gamma / self._beta) * GV0 + deltaT * (1 - self._gamma / (2 * self._beta)) * GA0
+        GA_now = 1 / (self._beta * deltaT ** 2) * (GC_now - GC0) - 1 / (self._beta * deltaT) * GV0 - (1 / (2 * self._beta) - 1) * GA0
+
+        return GV_now, GA_now
+
+    def get_current_acceleration(self, GC0: torch.Tensor, GV0: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate the current acceleration based on the newton's law.
+
+        Args:
+            GC0 (torch.Tensor): Previous generalized coordinates.
+            GV0 (torch.Tensor): Previous velocities.
+            GA0 (torch.Tensor): Previous accelerations.
+
+        Returns:
+            torch.Tensor: Current accelerations.
+        """
+        Rv = self.assembly.assemble_Stiffness_Matrix(GC=GC0)[0]
+
+        # Newmark initial acceleration
+        # M * GA0 = F_ext(GC0) - F_int(GC0)
+        mass_indices, mass_values = self.assembly.assemble_mass_matrix(GC_now=GC0)
+        GA0 = _linear_solver.pypardiso_solver(mass_indices, mass_values, Rv)
+        return GA0
+    
     # region solve iteration
 
     def _line_search(self,
-                     GC0: torch.Tensor,
+                     GC_now: torch.Tensor,
+                     GC_pre: torch.Tensor,
                      dGC: torch.Tensor,
                      R: torch.Tensor,
-                     energy0: float, *args, **kwargs):
+                     energy0: float, deltaT: float, *args, **kwargs):
         # line search
         alpha = 1.0
         beta = float('inf')
@@ -110,10 +299,9 @@ class DynamicImplicitSolver(BaseSolver):
 
         loopc2 = 0
         while True:
-            GCnew = GC0 + alpha * dGC
+            GCnew = GC_now + alpha * dGC
             # GCnew.requires_grad_()
-            energy_new = self.assembly._total_Potential_Energy(
-                RGC=self.assembly._GC2RGC(GCnew))
+            energy_new = self.get_incremental_energy(GC_now=GCnew, GC_pre=GC_pre, deltaT=deltaT)
 
             if torch.isnan(energy_new) or torch.isinf(
                     energy_new) or \
@@ -122,7 +310,7 @@ class DynamicImplicitSolver(BaseSolver):
                 alpha = 0.5 * alpha
                 if alpha < 1e-12:
                     alpha = 0.0
-                    GCnew = GC0.clone()
+                    GCnew = GC_now.clone()
                     energy_new = energy0
                     break
             else:
@@ -161,14 +349,15 @@ class DynamicImplicitSolver(BaseSolver):
         # if abs(alpha) < 1e-3:
         #     alpha = 1
         #     GCnew = GC0 + alpha * dGC0
-        return alpha, GCnew.detach(), energy_new.detach()
+        return alpha, GCnew.detach(), energy_new
 
     def _solve_iteration(self,
-                         RGC: list[torch.Tensor],
+                         GC0: torch.Tensor,
+                         GC_pre: torch.Tensor,
+                         deltaT: float,
                          tol_error: float):
 
-        GC = self.assembly._RGC2GC(RGC)
-        RGC = self.assembly._GC2RGC(GC)
+        GC_now = GC0.clone()
 
         # iteration now
         self._iter_now = 0
@@ -178,18 +367,10 @@ class DynamicImplicitSolver(BaseSolver):
 
         # initialize the energy
         energy = [
-            self.assembly._total_Potential_Energy(RGC=RGC)
+            self.get_incremental_energy(GC_now=GC_now, GC_pre=GC_pre, deltaT=deltaT)
         ]
 
-        # check the initial energy, if nan, reinitialize the RGC
-        if torch.isnan(energy[-1]):
-            for i in range(len(self.assembly.RGC)):
-                RGC[i] = torch.randn_like(self.assembly.RGC[i]) * 1e-10
-
-            GC = self.assembly._RGC2GC(RGC)
-            energy[-1] = self.assembly._total_Potential_Energy(
-                RGC=RGC)
-        dGC = torch.zeros_like(GC)
+        dGC = torch.zeros_like(GC0)
 
         # record the number of low alpha
         low_alpha = 0
@@ -200,13 +381,13 @@ class DynamicImplicitSolver(BaseSolver):
 
             if self._iter_now > self.maximum_iteration:
                 print('maximum iteration reached')
-                self.assembly.GC = GC
+                self.assembly.GC = GC_now
                 return False
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
-            R, K_indices, K_values = self.assembly.assemble_Stiffness_Matrix(
-                RGC=RGC)
+            R, K_indices, K_values = self.get_incremental_stiffness_matrix(
+                GC_now=GC_now, GC_pre=GC_pre)
 
             self._iter_now += 1
 
@@ -225,16 +406,11 @@ class DynamicImplicitSolver(BaseSolver):
 
             # line search
             t3 = time.time()
-            if R.abs().max() > 1e-3:
-                alpha, GCnew, energynew = self._line_search(
-                    GC, dGC, R, energy[-1])
-            else:
-                alpha = 1.
-                GCnew = GC + dGC
-                energynew = self.assembly._total_Potential_Energy(RGC = self.assembly._GC2RGC(GCnew))
+            alpha, GCnew, energynew = self._line_search(
+                    GC_now=GC_now, GC_pre=GC_pre, dGC=dGC, R=R, energy0=energy[-1], deltaT=deltaT)
 
             if alpha==0 and R.abs().max() > tol_error:
-                self.assembly.GC = GC
+                self.assembly.GC = GC_now
                 return False
             if alpha==0:
                 break
@@ -250,37 +426,25 @@ class DynamicImplicitSolver(BaseSolver):
             if low_alpha > 10:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
-                    self.assembly.GC = GC
+                    self.assembly.GC = GC_now
                     break
                 return False
 
-            # update the GC
-            GC = GCnew
 
-            # update the RGC
-            RGC = self.assembly._GC2RGC(GC)
 
             # self.show_surface(nodes=self.nodes+RGC[0])
 
             # update the energy
-            energynew = self.assembly._total_Potential_Energy(
-                RGC=RGC)
+            energynew = self.get_incremental_energy(GC_now=GCnew, GC_pre=GC_pre, deltaT=deltaT)
             energy.append(energynew)
 
-            # reinitialize the objects
-            # for e in self.elems.values():
-            #     e.reinitialize(RGC=RGC)
-
-            # for f in self.loads.values():
-            #     f.reinitialize(RGC=RGC)
-
-            # for c in self.constraints.values():
-            #     c.reinitialize(RGC=RGC)
+            # update the GC
+            GC_now = GCnew
 
             t4 = time.time()
 
             # return the index to the first line
-            if self._iter_now > 0:
+            if self._iter_now > 1:
                 print('\033[1A', end='')
                 print('\033[1A', end='')
                 print('\033[K', end='')
@@ -307,8 +471,8 @@ class DynamicImplicitSolver(BaseSolver):
             
             if dGC.abs().max() < tol_error and R.abs().max() < tol_error:
                 break
-        self.assembly.GC = GC
-        return True
+
+        return GC_now
 
     def _solve_linear_equation(self,
                                K_indices: torch.Tensor,

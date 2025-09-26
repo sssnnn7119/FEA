@@ -38,7 +38,7 @@ class BaseLoad(BaseObj):
         super().initialize(assembly)
     
     def get_stiffness(self,
-                RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+                RGC: list[torch.Tensor], if_onlyforce: bool = False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
         """Get the stiffness matrix and force vector for the self-contact load.
 
         Args:

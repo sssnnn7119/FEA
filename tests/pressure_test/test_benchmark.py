@@ -12,7 +12,7 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
-fem = FEA.inp()
+fem = FEA.FEA_INP()
 # fem.Read_INP(
 #     'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/2024Arm/WorkspaceCase/CAE/TopOptRun.inp'
 # )
@@ -21,10 +21,10 @@ fem = FEA.inp()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/C3D4.inp')
+fem.read_inp(current_path + '/C3D4Less.inp')
 
 fe = FEA.from_inp(fem)
-
+fe.solver = FEA.solver.StaticImplicitSolver()
 # elems = FEA.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
 # fe.elems['element-0'].set_materials(elems)
 
@@ -52,12 +52,12 @@ t1 = time.time()
 fe.solve(tol_error=0.01)
 
 
-print(fe.GC)
+print(fe.solver.GC)
 print('ok')
 
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
-extern_surf = fe.assembly.get_instance('final_model').surfaces('surface_0_All')[0]._elems[:, :3].cpu().numpy()
+extern_surf = fe.assembly.get_instance('final_model').surfaces.get_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
 # extern_surf = fem.part['final_model'].surfaces['surface_1_All']
 
 from mayavi import mlab
@@ -66,7 +66,7 @@ from mayavi import mlab
 coo=extern_surf
 
 # Get the deformed surface coordinates
-U = fe.RGC[0].cpu().numpy()
+U = fe.assembly._GC2RGC(fe.solver.GC)[0].cpu().numpy()
 undeformed_surface = (fem.part['final_model'].nodes[:,1:]).cpu().numpy()
 deformed_surface = undeformed_surface + U
 

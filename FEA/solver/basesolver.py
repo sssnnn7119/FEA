@@ -22,6 +22,10 @@ class BaseSolver:
         self.assembly: Assembly = None
         """ The assembly of the finite element model. """
 
+        
+        self.GC: torch.Tensor = None
+        """ The generalized coordinates of the finite element model. """
+
     def initialize(self, assembly: Assembly, *args, **kwargs):
         """
         Initialize the finite element model.
@@ -31,7 +35,7 @@ class BaseSolver:
         """
         self.assembly = assembly
 
-    def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7) -> bool:
+    def solve(self, GC0: torch.Tensor = None, *args, **kwargs) -> bool:
         """
         Solves the finite element analysis problem.
 

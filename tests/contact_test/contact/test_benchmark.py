@@ -21,7 +21,7 @@ fem = FEA.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
  
-fem.Read_INP(current_path + '/Free.inp')
+fem.read_inp(current_path + '/Free.inp')
 
 fe = FEA.from_inp(fem)
 fe.solver = FEA.solver.StaticImplicitSolver()

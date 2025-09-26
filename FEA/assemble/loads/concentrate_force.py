@@ -18,8 +18,10 @@ class Concentrate_Force(BaseLoad):
 
 
     def get_stiffness(self,
-                RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-
+                RGC: list[torch.Tensor], if_onlyforce: bool = False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if if_onlyforce:
+            return self._indices_force, self.force
+        
         return self._indices_force, self.force, torch.zeros([2, 0], dtype=torch.int), torch.zeros([0])
 
     def get_potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:

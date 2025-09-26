@@ -18,7 +18,7 @@ inp = FEA.FEA_INP()
 from matplotlib import pyplot as plt
 
 inp_file = os.path.join(current_path, '_forshellgenerate.inp')
-inp.Read_INP(inp_file)
+inp.read_inp(inp_file)
 
 fe = FEA.from_inp(inp)
 fe.initialize()

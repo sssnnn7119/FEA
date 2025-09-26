@@ -24,7 +24,7 @@ def show_quiver3d(R, N, hold=False):
 
 fem = FEA.FEA_INP()
 name = 'C3D4'
-fem.Read_INP(current_path + '/C3D4.inp')
+fem.read_inp(current_path + '/C3D4.inp')
 
 fe = FEA.from_inp(fem)
 fe.solver = FEA.solver.StaticImplicitSolver()

@@ -107,12 +107,26 @@ class Part:
         """
 
         self.surfaces = _Surfaces()
+        """Surfaces of the part."""
+
+        self.mass_matrix_indices: torch.Tensor = None
+        """
+        Indices of the mass matrix.
+        """
+        self.mass_matrix_values: torch.Tensor = None
+        """
+        Values of the mass matrix.
+        """
+
 
     def initialize(self, *args, **kwargs):
         for e in self.elems.values():
             e.initialize()
         self.surfaces.initialize(self)
 
+
+
+    # region CAD
     def add_element(self, element: BaseElement, name: str = None):
         """
         Add an element to the FEA model.
@@ -232,13 +246,14 @@ class Part:
             
         return
 
-    def potential_Energy(self, RGC: torch.Tensor) -> torch.Tensor:
+    def potential_energy(self, RGC: torch.Tensor) -> torch.Tensor:
         p = torch.tensor(0.0)
         for e in self.elems.values():
             p = p + e.potential_Energy(RGC)
         return p
 
-    def structural_Force(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor) -> list[torch.Tensor]:
+    def structural_stiffness(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor) -> list[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        
         K_values = []
         K_indices = []
         R_values = []
@@ -257,6 +272,19 @@ class Part:
         R_values = torch.cat(R_values, dim=0)
         return R_indices, R_values, K_indices, K_values
     
+    def structural_force(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor) -> list[torch.Tensor, torch.Tensor]:
+        
+        R_values = []
+        R_indices = []
+        for e in self.elems.values():
+            Ra_indice, Ra_values = e.structural_Force(
+                RGC=RGC, rotation_matrix=rotation_matrix, if_onlyforce=True)
+            R_values.append(Ra_values)
+            R_indices.append(Ra_indice)
+        R_indices = torch.cat(R_indices, dim=0)
+        R_values = torch.cat(R_values, dim=0)
+        return R_indices, R_values
+
     def extract_surfaces(self, name: str) -> list[BaseSurface]:
         """        Get the triangles of a surface set by name.  
         
@@ -280,6 +308,25 @@ class Part:
             raise ValueError(f"Surface {surf_ind} not found in the model.")
         else:
             return surfaces.merge_surfaces(surface)
+
+    # endregion
+
+    # region dynamic
+
+    def get_mass_matrix(self, rotation_matrix: torch.Tensor):
+        M_indices = []
+        M_values = []
+        for e in self.elems.values():
+            Me_indice, Me_value = e.get_mass_matrix(rotation_matrix=rotation_matrix)
+            M_indices.append(Me_indice)
+            M_values.append(Me_value)
+
+        M_indices = torch.cat(M_indices, dim=1)
+        M_values = torch.cat(M_values, dim=0)
+
+        return M_indices, M_values
+
+    # endregion
 
 class Instance(BaseObj):
     def __init__(self, part: Part) -> None:
@@ -355,20 +402,27 @@ class Instance(BaseObj):
         
         super().initialize(assembly=assembly)
 
+    def get_mass_matrix(self):
+        mass_indices, mass_values = self.part.get_mass_matrix(self.rotation_matrix)
+        return mass_indices + self._index_start, mass_values
+
     def refine_RGC(self, RGC: list[torch.Tensor]) -> list[torch.Tensor]:
         RGC_out = RGC
         RGC_out[self._RGC_index] = self.part.refine_RGC(RGC[self._RGC_index])
         return RGC_out
     
-    def potential_Energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
-        return self.part.potential_Energy(self._transform(rotation_vector=-self._rotation, vector0=RGC[self._RGC_index]))
+    def potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
+        return self.part.potential_energy(self._transform(rotation_vector=-self._rotation, vector0=RGC[self._RGC_index]))
     
-    def structural_Force(self, RGC: list[torch.Tensor]) -> list[torch.Tensor]:
-        R_indices, R_values, K_indices, K_values = self.part.structural_Force(RGC[self._RGC_index], self.rotation_matrix)
-        return R_indices, R_values, K_indices, K_values
+    def structural_stiffness(self, RGC: list[torch.Tensor], if_onlyforce: bool = False, *args, **kwargs) -> list[torch.Tensor]:
+
+        if if_onlyforce:
+            R_indices, R_values = self.part.structural_force(RGC[self._RGC_index], self.rotation_matrix)
+            return R_indices + self._index_start, R_values
+        
+        R_indices, R_values, K_indices, K_values = self.part.structural_stiffness(RGC[self._RGC_index], self.rotation_matrix)
+        return R_indices + self._index_start, R_values, K_indices + self._index_start, K_values
     
     def extract_surfaces(self, name: str) -> list[BaseSurface]:
         surfaces = self.part.extract_surfaces(name)
         return surfaces
-    
-    

@@ -19,8 +19,11 @@ class BodyForce(BaseLoad):
         self._instance_name = instance_name
 
         self._pdU_indices: torch.Tensor
+        self._pdU_values: torch.Tensor
 
         self._element: Element_3D
+
+        self._instance_RGC_index: int
 
     def initialize(self, assembly):
         super().initialize(assembly)
@@ -30,9 +33,10 @@ class BodyForce(BaseLoad):
 
         instance = assembly.get_instance(self._instance_name)    
 
-        self._pdU_indices = torch.stack([self._element._elems*3, self._element._elems*3+1, self._element._elems*3+2], dim=-1).to(instance.nodes.device).to(torch.int64) + assembly._instances_start_index[self._instance_name]
-
-    def get_stiffness(self, RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        self._pdU_indices = torch.stack([self._element._elems*3, self._element._elems*3+1, self._element._elems*3+2], dim=-1).to(instance.nodes.device).to(torch.int64) + instance._index_start
+        self._pdU_values = torch.einsum('i, ge, gea->eai', self.force_density, self._element.gaussian_weight, self._element.shape_function_d0_gaussian).flatten()
+        self._instance_RGC_index = instance._RGC_index
+    def get_stiffness(self, RGC: list[torch.Tensor], if_onlyforce: bool = False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get the body force vector. Body forces don't contribute to stiffness matrix.
         
@@ -47,18 +51,14 @@ class BodyForce(BaseLoad):
                 - K_values: Empty tensor (body forces don't affect stiffness)
         """
         # Current node positions for volume calculation
-        U = RGC[0]
-        elems = self._element
-        displacement_gaussian = torch.zeros(elems._num_gaussian, elems._elems.shape[0], 3)
-        for i in range(elems.num_nodes_per_elem):
-            displacement_gaussian = displacement_gaussian + torch.einsum('ge, ei->gei', elems.shape_function_d0_gaussian[:, :, i], U[elems._elems[:, i]])
 
-        pdU_values = torch.einsum('i, ge, gea->eai', self.force_density, elems.gaussian_weight, elems.shape_function_d0_gaussian).flatten()
-        
+        if if_onlyforce:
+            return (self._pdU_indices.flatten(), self._pdU_values)
+
         return (self._pdU_indices.flatten(), 
-                pdU_values, 
-                torch.zeros([2, 0], dtype=torch.int64, device=pdU_values.device), 
-                torch.zeros([0], device=pdU_values.device))
+                self._pdU_values, 
+                torch.zeros([2, 0], dtype=torch.int64, device=self._pdU_values.device), 
+                torch.zeros([0], device=self._pdU_values.device))
 
     def get_potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -71,7 +71,7 @@ class BodyForce(BaseLoad):
             torch.Tensor: Body force potential energy.
         """
         # Current node positions
-        U = RGC[0]
+        U = RGC[self._instance_RGC_index] + self._assembly.get_instance(self._instance_name).nodes
         elems = self._element
         displacement_gaussian = torch.zeros(elems._num_gaussian, elems._elems.shape[0], 3)
         for i in range(elems.num_nodes_per_elem):

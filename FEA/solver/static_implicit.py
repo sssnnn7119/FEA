@@ -11,7 +11,7 @@ from .basesolver import BaseSolver
 
 class StaticImplicitSolver(BaseSolver):
 
-    def __init__(self, maximum_iteration: int = 10000) -> None:
+    def __init__(self, maximum_iteration: int = 10000, tol_error: float = 1e-5) -> None:
         """
         Initialize the FEA class.
 
@@ -34,12 +34,14 @@ class StaticImplicitSolver(BaseSolver):
         The allowable maximum step length for each step.
         """
 
+        self.tol_error: float = tol_error
+        """
+        The tolerance error for the solver.
+        """
+
         self.__low_alpha_count = 0
 
-        self.assembly: Assembly = None
-        """ The assembly of the finite element model. """
-
-    def solve(self, RGC0: torch.Tensor = None, tol_error: float = 1e-7) -> bool:
+    def solve(self, GC0: torch.Tensor = None, *args, **kwargs) -> bool:
         """
         Solves the finite element analysis problem.
 
@@ -53,20 +55,43 @@ class StaticImplicitSolver(BaseSolver):
         # initialize the RGC
         t0 = time.time()
         # start the iteration
-        result = self._solve_iteration(RGC=RGC0 if RGC0 is not None else self.assembly.RGC,
-                                         tol_error=tol_error)
+        if GC0 is None:
+            GC0 = self.assembly.GC
+        result = self._solve_iteration(GC=GC0, tol_error=self.tol_error)
+
+        if type(result) == bool:
+            return result
         
-        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly.GC))
+        self.GC = result
+        self.assembly.GC = self.GC
+        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.GC))
         t2 = time.time()
 
         # print the information
         print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
-        R = self.assembly.assemble_Stiffness_Matrix(RGC=self.assembly.RGC)[0]
+        R = self.get_stiffness_matrix(GC_now=self.GC)[0]
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
-        return result
+        return self.GC
    
+    def get_total_energy(self, GC_now: torch.Tensor) -> float:
+        
+        potential_energy = self.assembly._total_Potential_Energy(GC=GC_now)
+        return potential_energy
+    
+    def get_stiffness_matrix(self, GC_now: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calculate the stiffness matrix for the current configuration.
+
+        Args:
+            GC_now (torch.Tensor): Current generalized coordinates.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Indices and values of the stiffness matrix.
+        """
+        R, K_indices, K_values = self.assembly.assemble_Stiffness_Matrix(GC=GC_now)
+        return R,K_indices, K_values
 
     # region solve iteration
 
@@ -100,8 +125,8 @@ class StaticImplicitSolver(BaseSolver):
         while True:
             GCnew = GC0 + alpha * dGC
             # GCnew.requires_grad_()
-            energy_new = self.assembly._total_Potential_Energy(
-                RGC=self.assembly._GC2RGC(GCnew))
+            energy_new = self.get_total_energy(
+                GC_now=GCnew)
 
             if torch.isnan(energy_new) or torch.isinf(
                     energy_new) or \
@@ -133,7 +158,7 @@ class StaticImplicitSolver(BaseSolver):
         #     dGC = R
         #     while True:
         #         GCnew = GC0 + alpha * dGC
-        #         energy_new = self.assembly._total_Potential_Energy(
+        #         energy_new = self.get_total_energy(
         #             RGC=self.assembly._GC2RGC(GCnew))
         #         if energy_new < energy0:
         #             # pressure *= 1.2
@@ -152,11 +177,8 @@ class StaticImplicitSolver(BaseSolver):
         return alpha, GCnew.detach(), energy_new.detach()
 
     def _solve_iteration(self,
-                         RGC: list[torch.Tensor],
+                         GC: torch.Tensor,
                          tol_error: float):
-
-        GC = self.assembly._RGC2GC(RGC)
-        RGC = self.assembly._GC2RGC(GC)
 
         # iteration now
         self._iter_now = 0
@@ -166,17 +188,9 @@ class StaticImplicitSolver(BaseSolver):
 
         # initialize the energy
         energy = [
-            self.assembly._total_Potential_Energy(RGC=RGC)
+            self.get_total_energy(GC_now=GC)
         ]
 
-        # check the initial energy, if nan, reinitialize the RGC
-        if torch.isnan(energy[-1]):
-            for i in range(len(self.assembly.RGC)):
-                RGC[i] = torch.randn_like(self.assembly.RGC[i]) * 1e-10
-
-            GC = self.assembly._RGC2GC(RGC)
-            energy[-1] = self.assembly._total_Potential_Energy(
-                RGC=RGC)
         dGC = torch.zeros_like(GC)
 
         # record the number of low alpha
@@ -188,13 +202,11 @@ class StaticImplicitSolver(BaseSolver):
 
             if self._iter_now > self.maximum_iteration:
                 print('maximum iteration reached')
-                self.assembly.GC = GC
                 return False
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
-            R, K_indices, K_values = self.assembly.assemble_Stiffness_Matrix(
-                RGC=RGC)
+            R, K_indices, K_values = self.get_stiffness_matrix(GC_now=GC)
 
             self._iter_now += 1
 
@@ -213,16 +225,10 @@ class StaticImplicitSolver(BaseSolver):
 
             # line search
             t3 = time.time()
-            if R.abs().max() > 1e-3:
-                alpha, GCnew, energynew = self._line_search(
+            alpha, GCnew, energynew = self._line_search(
                     GC, dGC, R, energy[-1])
-            else:
-                alpha = 1.
-                GCnew = GC + dGC
-                energynew = self.assembly._total_Potential_Energy(RGC = self.assembly._GC2RGC(GCnew))
 
             if alpha==0 and R.abs().max() > tol_error:
-                self.assembly.GC = GC
                 return False
             if alpha==0:
                 break
@@ -236,10 +242,6 @@ class StaticImplicitSolver(BaseSolver):
                     low_alpha = 0
 
             if low_alpha > 10:
-                if R.abs().max() < 1e-3:
-                    print('low alpha, but convergence achieved')
-                    self.assembly.GC = GC
-                    break
                 return False
 
             # update the GC
@@ -251,52 +253,46 @@ class StaticImplicitSolver(BaseSolver):
             # self.show_surface(nodes=self.nodes+RGC[0])
 
             # update the energy
-            energynew = self.assembly._total_Potential_Energy(
-                RGC=RGC)
+            energynew = self.get_total_energy(
+                GC_now=GC)
             energy.append(energynew)
-
-            # reinitialize the objects
-            # for e in self.elems.values():
-            #     e.reinitialize(RGC=RGC)
-
-            # for f in self.loads.values():
-            #     f.reinitialize(RGC=RGC)
-
-            # for c in self.constraints.values():
-            #     c.reinitialize(RGC=RGC)
 
             t4 = time.time()
 
             # return the index to the first line
-            if self._iter_now > 0:
+            if self._iter_now > 1:
                 print('\033[1A', end='')
                 print('\033[1A', end='')
                 print('\033[K', end='')
 
             print(  "{:^8}".format("iter") + \
                     "{:^8}".format("alpha") + \
-                    "{:^15}".format("total") + \
+                    "{:^8}".format("total") + \
                     "{:^15}".format("energy") + \
+                    "{:^15}".format("delta_energy") + \
                     "{:^15}".format("error") + \
-                    "{:^15}".format("assemble") + \
-                    "{:^15}".format("linearEQ") + \
-                    "{:^15}".format("line search") + \
-                    "{:^15}".format("step"))
+                    "{:^10}".format("Ktime") + \
+                    "{:^10}".format("linear") + \
+                    "{:^10}".format("search") + \
+                    "{:^10}".format("step"))
 
             print(  "{:^8}".format(self._iter_now) + \
                     "{:^8.2f}".format(alpha) + \
-                    "{:^15.2f}".format(t4 - t00) + \
+                    "{:^8.2f}".format(t4 - t00) + \
                     "{:^15.4e}".format(energy[-1]) + \
+                    "{:^15.4e}".format(energy[-1] - energy[-2]) + \
                     "{:^15.4e}".format(R.abs().max()) + \
-                    "{:^15.2f}".format(t2 - t1) + \
-                    "{:^15.2f}".format(t3 - t2) + \
-                    "{:^15.2f}".format(t4 - t3) + \
-                    "{:^15.2f}".format(t4 - t1))
+                    "{:^10.2f}".format(t2 - t1) + \
+                    "{:^10.2f}".format(t3 - t2) + \
+                    "{:^10.2f}".format(t4 - t3) + \
+                    "{:^10.2f}".format(t4 - t1))
             
             if dGC.abs().max() < tol_error and R.abs().max() < tol_error:
                 break
-        self.assembly.GC = GC
-        return True
+
+            # if len(energy)>2 and abs((energy[-1]-energy[-2])/energy[-1])<1e-7:
+            #     break
+        return GC
 
     def _solve_linear_equation(self,
                                K_indices: torch.Tensor,

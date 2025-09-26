@@ -24,6 +24,11 @@ class BaseObj():
         The index of the extra RGC for this object.
         """
 
+        self._index_start: int = None
+        """
+        The start index of the extra RGC for this object
+        """
+
         self._assembly: Assembly = None
         """The assembly this object belongs to."""
 
@@ -32,6 +37,7 @@ class BaseObj():
         Set the index of the extra RGC for this object.
         """
         self._RGC_index = index
+        
 
     def set_required_DoFs(
             self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
@@ -45,6 +51,10 @@ class BaseObj():
 
     def initialize(self, assembly: Assembly):
         self._assembly = assembly
+        self._index_start = assembly.RGC_list_indexStart[self._RGC_index]
+        
+    def initialize_dynamic(self):
+        pass
     
     def reinitialize(self, RGC: list[torch.Tensor]):
         pass

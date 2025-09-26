@@ -1,3 +1,4 @@
+from math import e
 import numpy as np
 import torch
 from .base import BaseConstraint
@@ -14,6 +15,7 @@ class Couple(BaseConstraint):
 
         self._couple_index: int
         self._rp_index: int
+        self._instance_RGC_index: int
 
     def initialize(self, assembly):
         super().initialize(assembly)
@@ -21,6 +23,7 @@ class Couple(BaseConstraint):
         self._couple_index = self._assembly.get_instance(self.instance_name)._RGC_index
 
         instance = self._assembly.get_instance(self.instance_name)
+        self._instance_RGC_index = instance._RGC_index
 
         index_global = instance.nodes[self.indexNodes]
         self._ref_location = index_global - self._assembly.get_reference_point(self.rp_name).node
@@ -33,6 +36,22 @@ class Couple(BaseConstraint):
             RGC[self._rp_index][3:], self._ref_location) - self._ref_location
 
         return RGC
+    
+    def modify_mass_matrix(self, mass_indices, mass_values, RGC: list[torch.Tensor]):
+        v = RGC[self._rp_index][:3]
+        z = RGC[self._rp_index][3:]
+
+        theta = z.norm()
+        w = (z / z.norm())
+
+        epsilon = torch.zeros([3, 3, 3])
+        epsilon[0, 1, 2] = epsilon[1, 2, 0] = epsilon[2, 0, 1] = 1
+        epsilon[0, 2, 1] = epsilon[1, 0, 2] = epsilon[2, 1, 0] = -1
+
+        y = v - self._ref_location + \
+            self._ref_location * torch.cos(theta) + \
+            torch.einsum('ijk, j, pk->pi', epsilon, w, self._ref_location) * torch.sin(theta) + \
+            torch.einsum('i,j,pj->pi', w, w, self._ref_location) * (1 - torch.cos(theta))
 
     def set_required_DoFs(
             self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:
@@ -44,7 +63,7 @@ class Couple(BaseConstraint):
         return RGC_remain_index
 
     def modify_R_K(self, RGC: list[torch.Tensor], R0: torch.Tensor,
-                   K_indices: torch.Tensor, K_values: torch.Tensor):
+                   K_indices: torch.Tensor = None, K_values: torch.Tensor = None, if_onlyforce: bool = False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Modify the R and K
 
@@ -57,79 +76,12 @@ class Couple(BaseConstraint):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: The modified R and K tensors.
         """
-        v = RGC[self._rp_index][:3]
-        z = RGC[self._rp_index][3:]
-        theta = z.norm()
-        w = (z / z.norm())
 
-        epsilon_indices = [[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1],
-                        [2, 1, 2, 0, 1, 0]]
-        epsilon_values = [1, -1, -1, 1, 1, -1]
+        if not if_onlyforce and (K_indices is None or K_values is None):
+            raise ValueError("K_indices and K_values must be provided when if_onlyforce is False")
 
-
-        instance = self._assembly._instances[self.instance_name]
-        R_now = R0[self._assembly.RGC_list_indexStart[instance._RGC_index]:self._assembly.RGC_list_indexStart[instance._RGC_index+1]].view(-1, 3)
-
-        # basic derivatives
-        y = self._ref_location
-        # region
-
-        der_theta = -y * torch.sin(theta) + w.view(
-            1, 3) * (w.view(1, 3) * y).sum(dim=1).reshape(-1, 1) * torch.sin(
-                theta) + torch.cross(w.view(1, 3), y, dim=1) * torch.cos(theta)
-
-        der_theta2 = -y * torch.cos(theta) + w.view(
-            1, 3) * (w.view(1, 3) * y).sum(dim=1).reshape(
-                -1, 1) * (torch.cos(theta)) - torch.cross(
-                    w.view(1, 3), y, dim=1) * torch.sin(theta)
-
-        der_w = (torch.einsum('al,i->ail', y, w)) * (1 - torch.cos(theta))
-        temp = (1 - torch.cos(theta)) * (w.view(1, 3) * y).sum(dim=1).flatten()
-        for i in range(3):
-            der_w[:, i, i] += temp
-        for i in range(6):
-            der_w[:, epsilon_indices[0][i],
-                epsilon_indices[2][i]] -= epsilon_values[i] * torch.sin(
-                    theta) * y[:, epsilon_indices[1][i]]
-
-        der_w2 = torch.zeros([y.shape[0], 3, 3, 3])
-        temp = (1 - torch.cos(theta)) * y
-        for i in range(3):
-            der_w2[:, i, i, :] += temp
-            der_w2[:, i, :, i] += temp
-
-        der_w_theta = (torch.einsum('al,i->ail', y, w)) * torch.sin(theta)
-        temp = torch.sin(theta) * (w.view(1, 3) * y).sum(dim=1).flatten()
-        for i in range(3):
-            der_w_theta[:, i, i] += temp
-        for i in range(6):
-            der_w_theta[:, epsilon_indices[0][i],
-                        epsilon_indices[2][i]] -= epsilon_values[
-                            i] * torch.cos(theta) * y[:, epsilon_indices[1][i]]
-
-        wdot = -torch.einsum('i,p->ip', z, z) / theta**3 + torch.eye(3) / theta
-        thetadot = w
-        wdot2 = 3 * torch.einsum('i,p,q->ipq', z, z, z) / theta**5
-        temp = z / theta**3
-        for i in range(3):
-            wdot2[i, i, :] -= temp
-            wdot2[i, :, i] -= temp
-            wdot2[:, i, i] -= temp
-        thetadot2 = wdot
-
-        Ydot = torch.einsum('bjl,lp->bjp', der_w, wdot) + torch.einsum(
-            'bj,p->bjp', der_theta, thetadot)
-
-        Ydot2 = (
-            torch.einsum('ai,pq->aipq', der_theta, thetadot2) +
-            torch.einsum('ai, p, q->aipq', der_theta2, thetadot, thetadot) +
-            torch.einsum('ail,lq,p->aipq', der_w_theta, wdot, thetadot))
-
-        Ydot2 += (torch.einsum('ailm,lp,mq->aipq', der_w2, wdot, wdot) +
-                torch.einsum('ail,lp,q->aipq', der_w_theta, wdot, thetadot) +
-                torch.einsum('ail,lpq->aipq', der_w, wdot2))
-
-        #endregion
+        R_now = R0[self._assembly.RGC_list_indexStart[self._instance_RGC_index]:self._assembly.RGC_list_indexStart[self._instance_RGC_index+1]].view(-1, 3)
+        Ydot, Ydot2 = self._calculate_Ydotz(RGC)
 
         # R
         # region
@@ -143,6 +95,9 @@ class Couple(BaseConstraint):
         R[start_idx:start_idx+3] += Edotv
         R[start_idx+3:start_idx+6] += Edotz
         # endregion
+
+        if if_onlyforce:
+            return R
 
         # K
         # region
@@ -238,6 +193,78 @@ class Couple(BaseConstraint):
         #endregion
 
         return R, indices, values
+
+    def _calculate_Ydotz(self, RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        v = RGC[self._rp_index][:3]
+        z = RGC[self._rp_index][3:]
+        theta = z.norm()
+        w = (z / z.norm())
+
+        epsilon_indices = [[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1],
+                        [2, 1, 2, 0, 1, 0]]
+        epsilon_values = [1, -1, -1, 1, 1, -1]
+
+
+        # basic derivatives
+        y = self._ref_location
+        Y = v + self._rotation3d(z, y) - y
+
+        der_theta = -y * torch.sin(theta) + w.view(
+            1, 3) * (w.view(1, 3) * y).sum(dim=1).reshape(-1, 1) * torch.sin(
+                theta) + torch.cross(w.view(1, 3), y, dim=1) * torch.cos(theta)
+
+        der_theta2 = -y * torch.cos(theta) + w.view(
+            1, 3) * (w.view(1, 3) * y).sum(dim=1).reshape(
+                -1, 1) * (torch.cos(theta)) - torch.cross(
+                    w.view(1, 3), y, dim=1) * torch.sin(theta)
+
+        der_w = (torch.einsum('al,i->ail', y, w)) * (1 - torch.cos(theta))
+        temp = (1 - torch.cos(theta)) * (w.view(1, 3) * y).sum(dim=1).flatten()
+        for i in range(3):
+            der_w[:, i, i] += temp
+        for i in range(6):
+            der_w[:, epsilon_indices[0][i],
+                epsilon_indices[2][i]] -= epsilon_values[i] * torch.sin(
+                    theta) * y[:, epsilon_indices[1][i]]
+
+        der_w2 = torch.zeros([y.shape[0], 3, 3, 3])
+        temp = (1 - torch.cos(theta)) * y
+        for i in range(3):
+            der_w2[:, i, i, :] += temp
+            der_w2[:, i, :, i] += temp
+
+        der_w_theta = (torch.einsum('al,i->ail', y, w)) * torch.sin(theta)
+        temp = torch.sin(theta) * (w.view(1, 3) * y).sum(dim=1).flatten()
+        for i in range(3):
+            der_w_theta[:, i, i] += temp
+        for i in range(6):
+            der_w_theta[:, epsilon_indices[0][i],
+                        epsilon_indices[2][i]] -= epsilon_values[
+                            i] * torch.cos(theta) * y[:, epsilon_indices[1][i]]
+
+        wdot = -torch.einsum('i,p->ip', z, z) / theta**3 + torch.eye(3) / theta
+        thetadot = w
+        wdot2 = 3 * torch.einsum('i,p,q->ipq', z, z, z) / theta**5
+        temp = z / theta**3
+        for i in range(3):
+            wdot2[i, i, :] -= temp
+            wdot2[i, :, i] -= temp
+            wdot2[:, i, i] -= temp
+        thetadot2 = wdot
+
+        Ydot = torch.einsum('bjl,lp->bjp', der_w, wdot) + torch.einsum(
+            'bj,p->bjp', der_theta, thetadot)
+
+        Ydot2 = (
+            torch.einsum('ai,pq->aipq', der_theta, thetadot2) +
+            torch.einsum('ai, p, q->aipq', der_theta2, thetadot, thetadot) +
+            torch.einsum('ail,lq,p->aipq', der_w_theta, wdot, thetadot))
+
+        Ydot2 += (torch.einsum('ailm,lp,mq->aipq', der_w2, wdot, wdot) +
+                torch.einsum('ail,lp,q->aipq', der_w_theta, wdot, thetadot) +
+                torch.einsum('ail,lpq->aipq', der_w, wdot2))
+        
+        return Ydot, Ydot2
 
     def _rotation3d(self, rotation_vector: torch.Tensor,
                     vector0: torch.Tensor):

@@ -1,3 +1,4 @@
+from optparse import Values
 import time
 import numpy as np
 import torch
@@ -61,6 +62,12 @@ class Assembly:
         self.RGC_list_indexStart: list[int] = []
         """Record the start index of the RGC\n
         """
+
+        self.mass_matrix_indices: torch.Tensor
+        """The indices of the mass matrix"""
+
+        self.mass_matrix_values: torch.Tensor
+        """The values of the mass matrix"""
 
     # region Initialization
 
@@ -161,6 +168,27 @@ class Assembly:
 
         # endregion
 
+    def initialize_dynamic(self):
+            
+        for ins in self._instances.values():
+            ins.initialize_dynamic()
+
+        for l in self._loads.values():
+            l.initialize_dynamic()
+
+        for c in self._constraints.values():
+            c.initialize_dynamic()
+
+        # assemble the redundant mass matrix
+        mass_indices = []
+        mass_values = []
+        for ins in self._instances.values():
+            indices_now, values_now = ins.get_mass_matrix()
+            mass_indices.append(indices_now)
+            mass_values.append(values_now)
+        self.mass_matrix_indices = torch.cat(mass_indices, dim=1)
+        self.mass_matrix_values = torch.cat(mass_values, dim=0)
+
     def reinitialize(self, RGC: list[torch.Tensor]):
         """
         Reinitializes the finite element analysis problem.
@@ -183,27 +211,59 @@ class Assembly:
 
     # region Stiffness Matrix Assembly
 
-    def assemble_force(self, force: torch.Tensor, RGC: list[torch.Tensor] = None, GC: torch.Tensor = None) -> torch.Tensor:
+    def assemble_force(self, RGC: list[torch.Tensor] = None, GC: torch.Tensor = None) -> torch.Tensor:
         
         if RGC is None:
             if GC is None:
                 raise ValueError("Either RGC or GC must be provided.")
             RGC = self._GC2RGC(GC)
 
-        if force.dim() == 1:
-            force = force.unsqueeze(0)
-        R = force.clone()
-        if GC is None:
-            GC = self.GC
-        RGC = self._GC2RGC(GC)
+        #region evaluate the structural K and R
+        t0 = time.time()
+        R_values = []
+        R_indices = []
+
+        for ins in self._instances.keys():
+            Ra_indice, Ra_values = self._instances[ins].structural_stiffness(
+                RGC=RGC, if_onlyforce=True)
+            R_values.append(Ra_values)
+            R_indices.append(Ra_indice)
+        t1 = time.time()
+
+        ff = []
+        for f in self._loads.values():
+            Rf_indice, Rf_values = f.get_stiffness(
+                RGC=RGC, if_onlyforce=True)
+            R_values.append(-Rf_values)
+            R_indices.append(Rf_indice)
+
+            ff.append(torch.zeros(self.RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
+        t2 = time.time()
+        # endregion
+
+        R_indices = torch.cat(R_indices, dim=0)
+        R_values = torch.cat(R_values, dim=0)
+
+        R0 = torch.zeros(self.RGC_list_indexStart[-1])
+        # Convert R_indices to int64 explicitly for scatter operation
+        R0.scatter_add_(0, R_indices.to(torch.int64), R_values)
+        t0 = time.time()
+        R = R0
+        #region consider the constraints
         for c in self._constraints.values():
-            for i in range(R.shape[0]):
-                R_new = c.modify_R(RGC, force[i].flatten())
-                R[i] += R_new
+            R_new = c.modify_R_K(
+                RGC, R0, if_onlyforce=True)
+            R = R + R_new
+        t4 = time.time()
+        #endregion
 
-        R = R[:, self.RGC_remain_index_flatten]
+        # get the global stiffness matrix and force vector
 
+        R = R[self.RGC_remain_index_flatten]
+
+        t6 = time.time()
         return R
+    
     def assemble_Stiffness_Matrix(self,
                                    RGC: list[torch.Tensor] = None, GC: torch.Tensor = None):
         """
@@ -233,7 +293,11 @@ class Assembly:
         return R, K_indices, K_values
 
     def _assemble_generalized_Matrix(self,
-                                     RGC: list[torch.Tensor],):
+                                     RGC: list[torch.Tensor] = None, GC: torch.Tensor = None):
+        if RGC is None:
+            if GC is None:
+                raise ValueError("Either RGC or GC must be provided.")
+            RGC = self._GC2RGC(GC)
 
         #region evaluate the structural K and R
         t0 = time.time()
@@ -243,12 +307,12 @@ class Assembly:
         R_indices = []
 
         for ins in self._instances.keys():
-            Ra_indice, Ra_values, Ka_indice, Ka_value = self._instances[ins].structural_Force(
+            Ra_indice, Ra_values, Ka_indice, Ka_value = self._instances[ins].structural_stiffness(
                 RGC=RGC)
             K_values.append(Ka_value)
-            K_indices.append(Ka_indice + self.RGC_list_indexStart[self._instances[ins]._RGC_index])
+            K_indices.append(Ka_indice)
             R_values.append(Ra_values)
-            R_indices.append(Ra_indice + self.RGC_list_indexStart[self._instances[ins]._RGC_index])
+            R_indices.append(Ra_indice)
         t1 = time.time()
 
         ff = []
@@ -307,7 +371,7 @@ class Assembly:
         return R, K_indices, K_values
 
     def _total_Potential_Energy(self,
-                                RGC: list[torch.Tensor]):
+                                RGC: list[torch.Tensor] = None, GC: torch.Tensor = None) -> float:
         """
         Calculate the total potential energy of the finite element model.
 
@@ -318,10 +382,15 @@ class Assembly:
             float: The total potential energy.
         """
 
+        if RGC is None:
+            if GC is None:
+                raise ValueError("Either RGC or GC must be provided.")
+            RGC = self._GC2RGC(GC)
+
         # structural energy
         energy = 0
         for ins in self._instances.values():
-            energy = energy + ins.potential_Energy(RGC=RGC)
+            energy = energy + ins.potential_energy(RGC=RGC)
 
         # force potential
         for f in self._loads.values():
@@ -329,6 +398,34 @@ class Assembly:
 
         return energy
     
+    # endregion
+
+    # region for Dynamic Mass Matrix
+
+    def assemble_mass_matrix(self, GC_now: torch.Tensor):
+        mass_indices = [self.mass_matrix_indices]
+        mass_values = [self.mass_matrix_values]
+        RGC = self._GC2RGC(GC_now)
+        for c in self._constraints.values():
+            indices_now, values_now = c.modify_mass_matrix(mass_indices=self.mass_matrix_indices, mass_values=self.mass_matrix_values, RGC=RGC)
+            mass_indices.append(indices_now)
+            mass_values.append(values_now)
+
+        mass_indices = torch.cat(mass_indices, dim=1)
+        mass_values = torch.cat(mass_values, dim=0)
+
+        # get the global stiffness matrix and force vector
+        index_remain = self.RGC_remain_index_flatten[mass_indices[0].cpu(
+        )] & self.RGC_remain_index_flatten[mass_indices[1].cpu()]
+        mass_values = mass_values[index_remain]
+        mass_indices = mass_indices[:, index_remain]
+        t44 = time.time()
+
+        mass_indices[0] = mass_indices[0].unique(return_inverse=True)[1]
+        mass_indices[1] = mass_indices[1].unique(return_inverse=True)[1]
+
+        return mass_indices, mass_values
+
     # endregion
 
     # region GC

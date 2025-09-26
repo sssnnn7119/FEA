@@ -30,6 +30,9 @@ class Element_3D(BaseElement):
                 ]
         """
 
+        self.shape_function_d0_gaussian: torch.Tensor
+        """the shape functions of each guassian point [guassian, element, node]"""
+
         self.shape_function: list[torch.Tensor]
         """
             the shape functions of the element
@@ -100,6 +103,8 @@ class Element_3D(BaseElement):
 
         self.gaussian_coordinates: torch.Tensor
         """the coordinates of gaussian points in the reference space"""
+
+
 
     def initialize(self, *args, **kwargs) -> None:
 
@@ -340,6 +345,44 @@ class Element_3D(BaseElement):
                                                                          i]].cpu())
         return gaussian_position.to(nodes.device)
     
+    def get_mass_matrix(self,rotation_matrix:torch.Tensor=None):
+        """
+        Assemble the consistent mass matrix for the element.
+        Returns:
+            indices_force: torch.Tensor, indices for the force vector (flattened)
+            Melement: torch.Tensor, element mass vector (flattened)
+            indices_matrix: torch.Tensor, indices for the mass matrix (COO format)
+            values: torch.Tensor, values for the global mass matrix (flattened)
+        """
+        # Consistent mass matrix: M_ij = ∫_Ω ρ N_i N_j dΩ
+        # For each element, integrate N_i * N_j over the domain using Gaussian quadrature
+
+        # shape_function_d0_gaussian: [num_gauss, num_elem, num_nodes_per_elem]
+        N = self.shape_function_d0_gaussian  # [g, e, a]
+        rho = self.density
+
+        # Compute element mass matrix at each Gaussian point: [g, e, a, b]
+        # M_ij = ∑_g N_i(g) * N_j(g) * w_g * detJ_g * ρ
+        M_elem = torch.einsum('gea,geb,ge->abe', N, N, self.gaussian_weight * rho)
+
+        # Expand to 3D (for vector-valued DoFs): [e, a, b] -> [a, j, b, k, e]
+        # Only diagonal blocks are nonzero for lumped mass (consistent mass: block diagonal)
+        num_elems = M_elem.shape[2]
+        num_nodes = self.num_nodes_per_elem
+        M_elem_full = torch.zeros([num_nodes, 3, num_nodes, 3, num_elems], device=M_elem.device, dtype=M_elem.dtype)
+        for d in range(3):
+            M_elem_full[:, d, :, d, :] = M_elem  # [a, b, e]
+
+        # consider the rotation of the instance
+        if rotation_matrix is not None:
+            M_elem_full = torch.einsum('mj,ajbke,nk->ambne', rotation_matrix, M_elem_full, rotation_matrix)
+
+        # Assemble into global matrix (same pattern as stiffness)
+        values = torch.zeros([self._indices_matrix.shape[1]], device=M_elem.device, dtype=M_elem.dtype)
+        values = values.scatter_add(0, self._index_matrix_coalesce, M_elem_full.flatten())
+
+        return self._indices_matrix, values
+        
 
     def potential_Energy(self, RGC: torch.Tensor):
         
@@ -367,7 +410,7 @@ class Element_3D(BaseElement):
 
         return Ea
 
-    def structural_Force(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
+    def structural_Force(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None, if_onlyforce: bool = False, *args, **kwargs):
         
         U = RGC
 
@@ -381,6 +424,11 @@ class Element_3D(BaseElement):
         Relement = torch.einsum('geij,geia,ge->aje', s,
                                 self.shape_function_d1_gaussian,
                                 self.gaussian_weight)
+        
+        if if_onlyforce:
+            if rotation_matrix is not None:
+                Relement = torch.einsum('mj,aje->ame', rotation_matrix, Relement)
+            return self._indices_force, Relement.flatten()
                                 
         
         # calculate the element tangential stiffness matrix
@@ -449,7 +497,7 @@ class Element_3D(BaseElement):
             return (self.gaussian_weight * J).sum()
 
     def set_required_DoFs(
-            self, RGC_remain_index: np.ndarray) -> list[np.ndarray]:
+            self, RGC_remain_index: np.ndarray) -> np.ndarray:
         """
         Modify the RGC_remain_index
         """

@@ -9,10 +9,10 @@ from ..elements import BaseSurface
 
 class ContactBase(BaseLoad):
     def __init__(self,
-                 penalty_distance_g: float = 0.1,
-                 penalty_factor_g: float = 1.0,
-                 penalty_degree: int = 5,
-                 penalty_threshold_h: float = 1.5,
+                 penalty_distance_g: float = 1e-4,
+                 penalty_factor_g: float = 15.0,
+                 penalty_degree: int = 9,
+                 penalty_threshold_h: float = 2.0,
                  penalty_ratio_h: float = 0.5,
                  penalty_start_f: float = -0.2,
                  penalty_end_f: float = -0.8):
@@ -83,7 +83,7 @@ class ContactBase(BaseLoad):
 
         return check>0
 
-    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length: float = 2.0):
+    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length: float = 3.0):
         """
         Filter point pairs between surfaces for contact detection.
         
@@ -148,39 +148,97 @@ class ContactBase(BaseLoad):
             N2 = surface_element2.get_gaussian_normal(Y)
             return y1, N1, y2, N2
 
-    def _calculate_penalty_terms(self, y1: torch.Tensor, n1: torch.Tensor, y2: torch.Tensor, n2: torch.Tensor):
-        """
-        Calculate penalty terms for contact.
-        
-        Args:
-            y1, N1: Positions and normals for first surface
-            y2, N2: Positions and normals for second surface
-            
-        Returns:
-            torch.Tensor: Combined penalty values
-        """
-        
-        dy = y1[:, None, self._point_pairs[0], :] - y2[None, :, self._point_pairs[1], :]
-        dn = n1[:, None, self._point_pairs[0], :] - n2[None, :, self._point_pairs[1], :]
-        ndot = (n1[:, None, self._point_pairs[0], :] * n2[None, :, self._point_pairs[1], :]).sum(dim=-1)
+    def show_contact_pairs(self, ind: int, RGC: list[torch.Tensor]):
+        a = self
+        instance1 = a._assembly.get_instance(a.instance_name1)
+        instance2 = a._assembly.get_instance(a.instance_name2)
+        a._filter_point_pairs(a.surface_element1, a.surface_element2, 
+                                 instance1.nodes + RGC[instance1._RGC_index], 
+                                 instance2.nodes + RGC[instance2._RGC_index])
 
-        # Calculate f penalty term
-        MM = (self._penalty_start_f - ndot) / (self._penalty_start_f - self._penalty_end_f)
+        # U = U.clone().detach().requires_grad_(True)
+        Y1 = instance1.nodes + RGC[instance1._RGC_index]
+        Y2 = instance2.nodes + RGC[instance2._RGC_index]
+
+        num_g1 = a.surface_element1._num_gaussian
+        num_g2 = a.surface_element2._num_gaussian
+        num_e1 = a.surface_element1._elems.shape[0]
+        num_e2 = a.surface_element2._elems.shape[0]
+        num_n1 = a.surface_element1.num_nodes_per_elem
+        num_n2 = a.surface_element2.num_nodes_per_elem
+
+        # Calculate positions and normals for both surfaces
+        Ye1 = Y1[a.surface_element1._elems]
+        Ye2 = Y2[a.surface_element2._elems]
+
+        y1 = torch.einsum('eai, ga->gei', Ye1, a.surface_element1.shape_function_gaussian[0])
+        y2 = torch.einsum('eai, ga->gei', Ye2, a.surface_element2.shape_function_gaussian[0])
+
+        NR1 = torch.einsum('gma, eai->gemi', a.surface_element1.shape_function_gaussian[1], Ye1)
+        NR2 = torch.einsum('gma, eai->gemi', a.surface_element2.shape_function_gaussian[1], Ye2)
+        
+        N1 = torch.cross(NR1[:, :, 0, :], NR1[:, :, 1, :], dim=-1)
+        N2 = torch.cross(NR2[:, :, 0, :], NR2[:, :, 1, :], dim=-1)
+
+        nnorm1 = N1.norm(dim=-1)
+        nnorm2 = N2.norm(dim=-1)
+        n1 = N1 / nnorm1[:, :, None]
+        n2 = N2 / nnorm2[:, :, None]
+
+        num_p = a._point_pairs.shape[1]
+        
+        # Create extended tensor for two surfaces
+        E1 = torch.zeros([num_g1, num_p, 2, 3], device=Y1.device)
+        E1[:, :, 0] = y1[:, a._point_pairs[0]]
+        E1[:, :, 1] = n1[:, a._point_pairs[0]]
+
+        E2 = torch.zeros([num_g2, num_p, 2, 3], device=Y2.device)
+        E2[:, :, 0] = y2[:, a._point_pairs[1]]
+        E2[:, :, 1] = n2[:, a._point_pairs[1]]
+
+        dy = E1[:, None, :, 0, :] - E2[None, :, :, 0, :]
+        dn = E1[:, None, :, 1, :] - E2[None, :, :, 1, :]
+
+        M = (E1[:, None, :, 1, :] * E2[None, :, :, 1, :]).sum(dim=-1)
+        MM = (a._penalty_start_f - M) / (a._penalty_start_f - a._penalty_end_f)
         MM = MM.clamp(0, 1)
         f = MM**3 * (6*MM**2 - 15*MM + 10)
-        
-        # Calculate g penalty term
-        D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
-        D[D < 0] = 0
-        g = (D / self._penalty_factor_g) ** self._penalty_degree
 
-        # Calculate h penalty term
+        D = a._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
+        D[D < 0] = 0
+        g = (D / a._penalty_factor_g) ** a._penalty_degree
+        
         L = dy.norm(dim=-1)
-        T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
+        T = (a._penalty_threshold_h - L) / (a._penalty_ratio_h * a._penalty_threshold_h)
         T = T.clamp(0, 1)
         h = T**3 * (6*T**2 - 15*T + 10)
-        
-        return g * f * h
+
+        penalty = g * f * h
+
+        # Filter zero penalty pairs
+        index_remain = torch.where(penalty.sum([0,1]) > 0)[0]
+
+        point_pairs = a._point_pairs[:, index_remain]
+    
+        from mayavi import mlab
+
+        ind_now = torch.where(point_pairs[0]==point_pairs[0].unique()[ind])[0]
+
+        point_pairs_show = point_pairs[:, ind_now]
+        mlab.figure()
+        mlab.triangular_mesh((instance1.nodes+RGC[instance1._RGC_index]).cpu()[:, 0], (instance1.nodes+RGC[instance1._RGC_index]).cpu()[:, 1], (instance1.nodes+RGC[instance1._RGC_index]).cpu()[:, 2], a.surface_element1._elems.cpu().numpy(), color=(0.5, 0.5, 0.5), opacity=0.5)
+        mlab.triangular_mesh((instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 0], (instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 1], (instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 2], a.surface_element2._elems[:, [0,1,2]].cpu().numpy(), color=(0.5, 0.5, 0.5), opacity=0.5)
+        mlab.triangular_mesh((instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 0], (instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 1], (instance2.nodes+RGC[instance2._RGC_index]).cpu()[:, 2], a.surface_element2._elems[:, [0,2,3]].cpu().numpy(), color=(0.5, 0.5, 0.5), opacity=0.5)
+
+        for gind in range(y1.shape[0]):
+            mlab.points3d((y1[gind])[point_pairs_show[0], 0].cpu(), (y1[gind])[point_pairs_show[0], 1].cpu(), (y1[gind])[point_pairs_show[0], 2].cpu(), color=(1, 0, 0), scale_factor = 0.2)
+            mlab.quiver3d((y1[gind])[point_pairs_show[0], 0].cpu(), (y1[gind])[point_pairs_show[0], 1].cpu(), (y1[gind])[point_pairs_show[0], 2].cpu(), (n1[gind])[point_pairs_show[0], 0].cpu(), (n1[gind])[point_pairs_show[0], 1].cpu(), (n1[gind])[point_pairs_show[0], 2].cpu(), color=(1, 0, 0), scale_factor = 1.0)
+
+        for gind in range(y2.shape[0]):
+            mlab.points3d((y2[gind])[point_pairs_show[1], 0].cpu(), (y2[gind])[point_pairs_show[1], 1].cpu(), (y2[gind])[point_pairs_show[1], 2].cpu(), color=(0, 0, 1), scale_factor = 0.2)
+            mlab.quiver3d((y2[gind])[point_pairs_show[1], 0].cpu(), (y2[gind])[point_pairs_show[1], 1].cpu(), (y2[gind])[point_pairs_show[1], 2].cpu(), (n2[gind])[point_pairs_show[1], 0].cpu(), (n2[gind])[point_pairs_show[1], 1].cpu(), (n2[gind])[point_pairs_show[1], 2].cpu(), color=(0, 0, 1), scale_factor = 1.0)
+
+        mlab.show()
 
 class ContactSelf(ContactBase):
     """
@@ -188,9 +246,9 @@ class ContactSelf(ContactBase):
     """
 
     def __init__(self, instance_name: str, surface_name: str,
-                 ignore_min_normal: float = 0.2,
-                 ignore_max_normal: float = 0.5, 
-                 initial_detact_ratio: float = 2., **kwargs):
+                 ignore_min_normal: float = 0.8,
+                 ignore_max_normal: float = 1.2, 
+                 initial_detact_ratio: float = 3., **kwargs):
         """
         Initialize the self-contact load.
 
@@ -323,9 +381,8 @@ class ContactSelf(ContactBase):
         MM = MM.clamp(0, 1)
         f = MM**3 * (6*MM**2 - 15*MM + 10)
 
-        D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
-        D[D < 0] = 0
-        g = (D / self._penalty_factor_g) ** self._penalty_degree
+        D = (dn * dy).sum(dim=-1) / 2
+        g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
 
 
         L = dy.norm(dim=-1)
@@ -338,7 +395,7 @@ class ContactSelf(ContactBase):
         return -potential_energy
 
 
-    def get_stiffness(self, RGC):
+    def get_stiffness(self, RGC, if_onlyforce: bool = False, *args, **kwargs):
         
 
         instance = self._assembly.get_instance(self.instance_name)
@@ -378,9 +435,8 @@ class ContactSelf(ContactBase):
         MM = MM.clamp(0, 1)
         f = MM**3 * (6*MM**2 - 15*MM + 10)
 
-        D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
-        D[D < 0] = 0
-        g = (D / self._penalty_factor_g) ** self._penalty_degree
+        D = (dn * dy).sum(dim=-1) / 2
+        g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
 
 
         L = dy.norm(dim=-1)
@@ -465,8 +521,9 @@ class ContactSelf(ContactBase):
         edUe_2 = torch.zeros([num_g, num_e, 2, 3, num_n, 3, num_n, 3])
         edUe_2[:, :, 1] = ndUe_2
 
-        gdD = self._penalty_degree / self._penalty_factor_g * (D / self._penalty_factor_g) ** (self._penalty_degree-1)
-        gdD_2 = self._penalty_degree * (self._penalty_degree - 1) / self._penalty_factor_g ** 2 * (D / self._penalty_factor_g) ** (self._penalty_degree - 2)
+        # g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
+        gdD = (self._penalty_factor_g) * g
+        gdD_2 = (self._penalty_factor_g**2) * g
 
         gdE = torch.zeros([num_g, num_g, num_p, 2, 2, 3])
         gdE[:, :, :, 0, 0, :] = torch.einsum('gGp, gGpi->gGpi', gdD / 2, dn)
@@ -579,7 +636,14 @@ class ContactSelf(ContactBase):
         #     pdUe[point_pairs[1, i]] += pdUe_values1[i]
 
         pdU_values = torch.stack([pdUe_values0, pdUe_values1], dim=0)
-        
+        tri_ind = point_pairs.cpu()
+
+        pdU_indices = self.surface_element._elems[tri_ind].to(torch.int64)
+        pdU_indices = torch.stack([pdU_indices*3, pdU_indices*3+1, pdU_indices*3+2], dim=-1)
+        pdU_indices = pdU_indices.to(self._assembly.device)
+
+        if if_onlyforce:
+            return pdU_indices.reshape([2, -1]), pdU_values.flatten(), torch.tensor([[], []], dtype=torch.int64), torch.tensor([])
 
         # pdU = torch.zeros_like(Y).flatten().scatter_add_(0, pdU_indices.flatten(), pdU_values.flatten()).reshape([-1, 3])
 
@@ -596,12 +660,8 @@ class ContactSelf(ContactBase):
         pdU_2_values = torch.stack([pdUe_2_values00, pdUe_2_values01, pdUe_2_values10, pdUe_2_values11], dim=0)
 
 
-        # pdU_2 = torch.sparse_coo_tensor(pdU_2_indices.reshape([2, -1]), pdU_2_values.flatten(), size=Y.shape*2)
-        tri_ind = point_pairs.cpu()
+        # pdU_2 = torch.sparse_coo_tensor(pdU_2_indices_.reshape([4, -1]), pdU_2_values.flatten(), size=Y.shape*2)
 
-        pdU_indices = self.surface_element._elems[tri_ind].to(torch.int64)
-        pdU_indices = torch.stack([pdU_indices*3, pdU_indices*3+1, pdU_indices*3+2], dim=-1)
-        pdU_indices = pdU_indices.to(self._assembly.device)
 
         pdU_2_indices00 = torch.stack([
             self.surface_element._elems[tri_ind[0]].reshape([num_p, num_n, 1, 1, 1]).repeat([1, 1, 3, num_n, 3]),
@@ -696,13 +756,6 @@ class Contact(ContactBase):
             self.surface_element1, self.surface_element2, assembly.get_instance(self.instance_name1).nodes, assembly.get_instance(self.instance_name2).nodes)
         
     def get_potential_energy(self, RGC):
-
-        instance1 = self._assembly.get_instance(self.instance_name1)
-        instance2 = self._assembly.get_instance(self.instance_name2)
-
-        self._filter_point_pairs(self.surface_element1, self.surface_element2, 
-                                 instance1.nodes + RGC[instance1._RGC_index], 
-                                 instance2.nodes + RGC[instance2._RGC_index])
         
         instance1 = self._assembly.get_instance(self.instance_name1)
         instance2 = self._assembly.get_instance(self.instance_name2)
@@ -773,7 +826,7 @@ class Contact(ContactBase):
         potential_energy = penalty.sum()
         return -potential_energy
 
-    def get_stiffness(self, RGC):
+    def get_stiffness(self, RGC, if_onlyforce=False, *args, **kwargs):
         instance1 = self._assembly.get_instance(self.instance_name1)
         instance2 = self._assembly.get_instance(self.instance_name2)
         self._filter_point_pairs(self.surface_element1, self.surface_element2, 
@@ -840,7 +893,7 @@ class Contact(ContactBase):
         penalty = g * f * h
 
         # Filter zero penalty pairs
-        index_remain = torch.where(penalty.sum([0,1]) > 1e-12)[0]
+        index_remain = torch.where(penalty.sum([0,1]) > 0)[0]
 
         point_pairs = self._point_pairs[:, index_remain]
         num_p = index_remain.shape[0]
@@ -1044,6 +1097,22 @@ class Contact(ContactBase):
 
         pdU_values = torch.cat([pdUe_values1.flatten(), pdUe_values2.flatten()], dim=0)
 
+        tri_ind = point_pairs.cpu()
+        index_start1 = self._assembly.RGC_list_indexStart[instance1._RGC_index]
+        index_start2 = self._assembly.RGC_list_indexStart[instance2._RGC_index]
+
+        pdU_indices1 = self.surface_element1._elems[tri_ind[0]].to(torch.int64)
+        pdU_indices1 = torch.stack([pdU_indices1*3, pdU_indices1*3+1, pdU_indices1*3+2], dim=-1) + index_start1
+        
+        pdU_indices2 = self.surface_element2._elems[tri_ind[1]].to(torch.int64)
+        pdU_indices2 = torch.stack([pdU_indices2*3, pdU_indices2*3+1, pdU_indices2*3+2], dim=-1) + index_start2
+        
+        pdU_indices = torch.cat([pdU_indices1.flatten(), pdU_indices2.flatten()], dim=0).to(self._assembly.device)
+
+        if if_onlyforce:
+            
+            return pdU_values, pdU_indices, torch.tensor([[], []], dtype=torch.int64), torch.tensor([])
+
 
         # For stiffness matrix, return simplified version (full implementation would be very complex)
         # Return empty stiffness for now
@@ -1061,17 +1130,7 @@ class Contact(ContactBase):
 
         # Build indices
 
-        tri_ind = point_pairs.cpu()
-        index_start1 = self._assembly.RGC_list_indexStart[instance1._RGC_index]
-        index_start2 = self._assembly.RGC_list_indexStart[instance2._RGC_index]
 
-        pdU_indices1 = self.surface_element1._elems[tri_ind[0]].to(torch.int64)
-        pdU_indices1 = torch.stack([pdU_indices1*3, pdU_indices1*3+1, pdU_indices1*3+2], dim=-1) + index_start1
-        
-        pdU_indices2 = self.surface_element2._elems[tri_ind[1]].to(torch.int64)
-        pdU_indices2 = torch.stack([pdU_indices2*3, pdU_indices2*3+1, pdU_indices2*3+2], dim=-1) + index_start2
-        
-        pdU_indices = torch.cat([pdU_indices1.flatten(), pdU_indices2.flatten()], dim=0).to(self._assembly.device)
         
 
         pdU_2_indices00 = torch.stack([

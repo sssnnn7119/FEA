@@ -83,10 +83,19 @@ class BaseElement():
     def initialize(self, *args, **kwargs):
         pass
     
+    def get_mass_matrix(self,rotation_matrix:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+            get the mass matrix of the element
+        Returns:
+            indices (torch.Tensor): the indices of the mass matrix
+            M (torch.Tensor): the mass matrix of the element
+        """
+        raise NotImplementedError('The mass matrix of the element is not implemented yet')
+
     def potential_Energy(self, RGC: torch.Tensor):
         pass
 
-    def structural_Force(self, RGC: torch.Tensor, *args, **kwargs):
+    def structural_Force(self, RGC: torch.Tensor,rotation_matrix:torch.Tensor, if_onlyforce: bool = False, *args, **kwargs):
         pass
 
     def set_materials(self, materials: materials.Materials_Base):
@@ -104,6 +113,12 @@ class BaseElement():
             density = torch.tensor([density], dtype=torch.float32)
 
         self.density = density
+        
+    def set_required_DoFs(
+            self, RGC_remain_index: np.ndarray) -> np.ndarray:
+        """
+        Modify the RGC_remain_index
+        """
         
     def extract_surface(self, surface_ind: int, elems_ind: np.ndarray):
         """
