@@ -24,8 +24,9 @@ fem = FEA.FEA_INP()
 fem.read_inp(current_path + '/C3D4Less.inp')
 
 fe = FEA.from_inp(fem)
-fe.solver = FEA.solver.DynamicImplicitSolver(deltaT=1e-4, time_end=0.1)
-
+fe.solver = FEA.solver.DynamicImplicitSolver(deltaT=1e-3, time_end=0.1)
+# fe.solver._gamma=0.6
+# fe.solver._beta=0.3025
 fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06))
 # fe.assembly.add_load(FEA.loads.BodyForce(instance_name='final_model', element_name='element-0', force_density=[-9.81e-6, 0, 0, ]))
 
@@ -47,6 +48,7 @@ t1 = time.time()
 
 fe.solve(tol_error=1e-6)
 
-np.save(current_path + '/benchmark_result.npy', np.array([fe.solver._GC_list[i].tolist() for i in range(len(fe.solver._GC_list))], dtype=np.float32))
-np.save(current_path + '/velocity.npy', np.array([fe.solver._GV_list[i].tolist() for i in range(len(fe.solver._GV_list))], dtype=np.float32))
-np.save(current_path + '/acceleration.npy', np.array([fe.solver._GA_list[i].tolist() for i in range(len(fe.solver._GA_list))], dtype=np.float32))
+current_path1 = "Z:/temp/"
+np.save(current_path1 + '/implicit_high_gamma_GC.npy', np.array([fe.solver._GC_list[i].tolist() for i in range(len(fe.solver._GC_list))], dtype=np.float32))
+np.save(current_path1 + '/implicit_high_gamma_GV.npy', np.array([fe.solver._GV_list[i].tolist() for i in range(len(fe.solver._GV_list))], dtype=np.float32))
+np.save(current_path1 + '/implicit_high_gamma_GA.npy', np.array([fe.solver._GA_list[i].tolist() for i in range(len(fe.solver._GA_list))], dtype=np.float32))

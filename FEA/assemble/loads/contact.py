@@ -10,9 +10,9 @@ from ..elements import BaseSurface
 class ContactBase(BaseLoad):
     def __init__(self,
                  penalty_distance_g: float = 1e-4,
-                 penalty_factor_g: float = 15.0,
+                 penalty_factor_g: float = 20.0,
                  penalty_degree: int = 9,
-                 penalty_threshold_h: float = 2.0,
+                 penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.5,
                  penalty_start_f: float = -0.2,
                  penalty_end_f: float = -0.8):
@@ -83,7 +83,7 @@ class ContactBase(BaseLoad):
 
         return check>0
 
-    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length: float = 3.0):
+    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length_ratio: float = 2.0):
         """
         Filter point pairs between surfaces for contact detection.
         
@@ -111,7 +111,7 @@ class ContactBase(BaseLoad):
         else:
             points = elems_mid1.detach().cpu().numpy()
         kdtree = scipy.spatial.cKDTree(points)
-        pairs = torch.from_numpy(kdtree.query_pairs(max_search_length, output_type='ndarray')).to(nodes1.device).T
+        pairs = torch.from_numpy(kdtree.query_pairs(max_search_length_ratio * self._penalty_threshold_h, output_type='ndarray')).to(nodes1.device).T
         index_revert = torch.where(pairs[0] >= pairs[1])[0]
         pairs[:, index_revert] = pairs[:, index_revert][[1, 0]]
         if not self.is_self_contact:
@@ -248,7 +248,7 @@ class ContactSelf(ContactBase):
     def __init__(self, instance_name: str, surface_name: str,
                  ignore_min_normal: float = 0.8,
                  ignore_max_normal: float = 1.2, 
-                 initial_detact_ratio: float = 3., **kwargs):
+                 initial_detact_ratio: float = 2., **kwargs):
         """
         Initialize the self-contact load.
 
@@ -300,7 +300,7 @@ class ContactSelf(ContactBase):
             self.surface_element, self.surface_element, instance.nodes)
 
     def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes: torch.Tensor):
-        super()._filter_point_pairs(surface_element1, surface_element2, nodes1=nodes, nodes2=nodes, max_search_length=self._penalty_threshold_h*self._initial_detact_ratio)
+        super()._filter_point_pairs(surface_element1, surface_element2, nodes1=nodes, nodes2=nodes, max_search_length_ratio=self._initial_detact_ratio)
         
         def _ratio_d_func(dx: torch.Tensor, dm: torch.Tensor):
             """
@@ -347,6 +347,12 @@ class ContactSelf(ContactBase):
         instance = self._assembly.get_instance(self.instance_name)
         self._filter_point_pairs(self.surface_element, self.surface_element, instance.nodes + RGC[instance._RGC_index])
 
+        weight = torch.einsum('gp, g, Gp, G->gGp', 
+                              self.surface_element1.det_Jacobian[:, self._point_pairs[0]], 
+                              self.surface_element1.gaussian_weight,
+                              self.surface_element2.det_Jacobian[:, self._point_pairs[1]],
+                              self.surface_element2.gaussian_weight)
+
         U = RGC[instance._RGC_index]
         # U = U.detach().clone().requires_grad_()
         Y = instance.nodes + U
@@ -390,7 +396,7 @@ class ContactSelf(ContactBase):
         T = T.clamp(0, 1)
         h = T**3 * (6*T**2 - 15*T + 10)
 
-        penalty = self._ratio * g * f * h
+        penalty = self._ratio * g * f * h * weight
         potential_energy = penalty.sum()
         return -potential_energy
 
@@ -401,6 +407,12 @@ class ContactSelf(ContactBase):
         instance = self._assembly.get_instance(self.instance_name)
         self._filter_point_pairs(self.surface_element, self.surface_element, instance.nodes + RGC[instance._RGC_index])
 
+        weight = torch.einsum('gp, g, Gp, G->gGp', 
+                              self.surface_element1.det_Jacobian[:, self._point_pairs[0]], 
+                              self.surface_element1.gaussian_weight,
+                              self.surface_element2.det_Jacobian[:, self._point_pairs[1]],
+                              self.surface_element2.gaussian_weight)
+
         U = RGC[instance._RGC_index]
         # U = U.detach().clone().requires_grad_()
         Y = instance.nodes + U
@@ -444,7 +456,7 @@ class ContactSelf(ContactBase):
         T = T.clamp(0, 1)
         h = T**3 * (6*T**2 - 15*T + 10)
 
-        penalty = self._ratio * g * f * h
+        penalty = self._ratio * g * f * h * weight
 
         # filter the zero penalty pairs
         index_remain = torch.where(penalty.sum([0,1])>1e-12)[0]
@@ -468,6 +480,7 @@ class ContactSelf(ContactBase):
         g = g[:, :, index_remain]
         h = h[:, :, index_remain]
         ratio = self._ratio[:, :, index_remain]
+        weight = weight[:, :, index_remain]
         
         # if index_remain.shape[0] > 0:
             # print('  Contact pairs: ', index_remain.shape[0], '\t surface name: ', self.surface_name)
@@ -608,8 +621,8 @@ class ContactSelf(ContactBase):
         pdE = torch.einsum('gGpmxi, gGp, gGp->gGpmxi', fdE, g, h) + \
             torch.einsum('gGp, gGpmxi, gGp->gGpmxi', f, gdE, h) + \
             torch.einsum('gGp, gGp, gGpmxi->gGpmxi', f, g, hdE)
-        
-        pdE = pdE * ratio[:, :, :, None, None, None]
+
+        pdE = pdE * ratio[:, :, :, None, None, None] * weight[:, :, :, None, None, None]
 
         pdE_2 = torch.einsum('gGpmxinyj, gGp, gGp->gGpmxinyj', fdE_2, g, h) + \
                 torch.einsum('gGpmxi, gGpnyj, gGp->gGpmxinyj', fdE, gdE, h) + \
@@ -623,7 +636,7 @@ class ContactSelf(ContactBase):
                 torch.einsum('gGp, gGpnyj, gGpmxi->gGpmxinyj', f, gdE, hdE)+\
                 torch.einsum('gGp, gGp, gGpmxinyj->gGpmxinyj', f, g, hdE_2)
         
-        pdE_2 = pdE_2 * ratio[:, :, :, None, None, None, None, None, None]
+        pdE_2 = pdE_2 * ratio[:, :, :, None, None, None, None, None, None] * weight[:, :, :, None, None, None, None, None, None]
  
         # pdUe = torch.zeros([num_e, num_n, 3])
         pdEsum0 = pdE.sum(0)
@@ -763,6 +776,12 @@ class Contact(ContactBase):
                                  instance1.nodes + RGC[instance1._RGC_index], 
                                  instance2.nodes + RGC[instance2._RGC_index])
 
+        weight = torch.einsum('ge, g, Ge, G->gGe', 
+                              self.surface_element1.det_Jacobian[:, self._point_pairs[0]], 
+                              self.surface_element1.gaussian_weight,
+                              self.surface_element2.det_Jacobian[:, self._point_pairs[1]],
+                              self.surface_element2.gaussian_weight)
+
         # U = U.clone().detach().requires_grad_(True)
         Y1 = instance1.nodes + RGC[instance1._RGC_index]
         Y2 = instance2.nodes + RGC[instance2._RGC_index]
@@ -811,16 +830,15 @@ class Contact(ContactBase):
         MM = MM.clamp(0, 1)
         f = MM**3 * (6*MM**2 - 15*MM + 10)
 
-        D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
-        D[D < 0] = 0
-        g = (D / self._penalty_factor_g) ** self._penalty_degree
+        D = (dn * dy).sum(dim=-1) / 2
+        g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
         
         L = dy.norm(dim=-1)
         T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
         T = T.clamp(0, 1)
         h = T**3 * (6*T**2 - 15*T + 10)
 
-        penalty = g * f * h
+        penalty = g * f * h * weight
         
         # Compute the potential energy
         potential_energy = penalty.sum()
@@ -833,6 +851,12 @@ class Contact(ContactBase):
                                  instance1.nodes + RGC[instance1._RGC_index], 
                                  instance2.nodes + RGC[instance2._RGC_index])
 
+        weight = torch.einsum('gp, g, Gp, G->gGp', 
+                              self.surface_element1.det_Jacobian[:, self._point_pairs[0]], 
+                              self.surface_element1.gaussian_weight,
+                              self.surface_element2.det_Jacobian[:, self._point_pairs[1]],
+                              self.surface_element2.gaussian_weight)
+
         # U = U.clone().detach().requires_grad_(True)
         Y1 = instance1.nodes + RGC[instance1._RGC_index]
         Y2 = instance2.nodes + RGC[instance2._RGC_index]
@@ -881,16 +905,15 @@ class Contact(ContactBase):
         MM = MM.clamp(0, 1)
         f = MM**3 * (6*MM**2 - 15*MM + 10)
 
-        D = self._penalty_distance_g + (dn * dy).sum(dim=-1) / 2
-        D[D < 0] = 0
-        g = (D / self._penalty_factor_g) ** self._penalty_degree
+        D = (dn * dy).sum(dim=-1) / 2
+        g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
         
         L = dy.norm(dim=-1)
         T = (self._penalty_threshold_h - L) / (self._penalty_ratio_h * self._penalty_threshold_h)
         T = T.clamp(0, 1)
         h = T**3 * (6*T**2 - 15*T + 10)
 
-        penalty = g * f * h
+        penalty = g * f * h * weight
 
         # Filter zero penalty pairs
         index_remain = torch.where(penalty.sum([0,1]) > 0)[0]
@@ -918,6 +941,7 @@ class Contact(ContactBase):
         f = f[:, :, index_remain]
         g = g[:, :, index_remain]
         h = h[:, :, index_remain]
+        weight = weight[:, :, index_remain]
 
         # Calculate derivatives for both surfaces
         # Surface 1 derivatives
@@ -991,9 +1015,9 @@ class Contact(ContactBase):
         e2dUe_2[:, :, 1] = n2dUe_2
 
         # Calculate penalty derivatives (similar to self-contact but for two surfaces)
-        gdD = self._penalty_degree / self._penalty_factor_g * (D / self._penalty_factor_g) ** (self._penalty_degree-1)
-
-        gdD_2 = self._penalty_degree * (self._penalty_degree - 1) / self._penalty_factor_g ** 2 * (D / self._penalty_factor_g) ** (self._penalty_degree - 2)
+        # g = torch.exp(D * self._penalty_factor_g) * self._penalty_distance_g
+        gdD = (self._penalty_factor_g) * g
+        gdD_2 = (self._penalty_factor_g**2) * g
 
         gdE = torch.zeros([num_g1, num_g2, num_p, 2, 2, 3])
         gdE[:, :, :, 0, 0, :] = torch.einsum('gGp, gGpi->gGpi', gdD / 2, dn)
@@ -1076,6 +1100,8 @@ class Contact(ContactBase):
               torch.einsum('gGp, gGpmxi, gGp->gGpmxi', f, gdE, h) + \
               torch.einsum('gGp, gGp, gGpmxi->gGpmxi', f, g, hdE)
         
+        pdE = pdE * weight[:, :, :, None, None, None]
+
         pdE_2 = torch.einsum('gGpmxinyj, gGp, gGp->gGpmxinyj', fdE_2, g, h) + \
                 torch.einsum('gGpmxi, gGpnyj, gGp->gGpmxinyj', fdE, gdE, h) + \
                 torch.einsum('gGpmxi, gGp, gGpnyj->gGpmxinyj', fdE, g, hdE) + \
@@ -1087,6 +1113,8 @@ class Contact(ContactBase):
                 torch.einsum('gGpnyj, gGp, gGpmxi->gGpmxinyj', fdE, g, hdE)+\
                 torch.einsum('gGp, gGpnyj, gGpmxi->gGpmxinyj', f, gdE, hdE)+\
                 torch.einsum('gGp, gGp, gGpmxinyj->gGpmxinyj', f, g, hdE_2)
+        
+        pdE_2 = pdE_2 * weight[:, :, :, None, None, None, None, None, None]
 
         # Calculate force contributions
         pdEsum0 = pdE.sum(0)
@@ -1182,7 +1210,9 @@ class Contact(ContactBase):
         """
         Modify the RGC_remain_index
         """
-        RGC_remain_index[0][self.surface_element1._elems.flatten().unique().cpu()] = True
-        RGC_remain_index[0][self.surface_element2._elems.flatten().unique().cpu()] = True
+        instance1 = self._assembly.get_instance(self.instance_name1)
+        instance2 = self._assembly.get_instance(self.instance_name2)
+        RGC_remain_index[instance1._RGC_index][self.surface_element1._elems.flatten().unique().cpu()] = True
+        RGC_remain_index[instance2._RGC_index][self.surface_element2._elems.flatten().unique().cpu()] = True
         return RGC_remain_index
 

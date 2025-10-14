@@ -32,7 +32,7 @@ fe.solver = FEA.solver.StaticImplicitSolver()
 
 # FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
 
-fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
+fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.08),
                 name='pressure-1')
 # fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
 fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_0_All'))
@@ -70,6 +70,8 @@ print('ok')
 ins1 = fe.assembly.get_instance('final_model')
 
 extern_surf = ins1.surfaces.get_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
+intern_surf = ins1.surfaces.get_elements('surface_1_All')[0]._elems[:, :3].cpu().numpy()
+intern_surf2 = ins1.surfaces.get_elements('surface_2_All')[0]._elems[:, :3].cpu().numpy()
 
 from mayavi import mlab
 import vtk
@@ -93,6 +95,15 @@ Unorm = (U**2).sum(axis=1)**0.5
 # mlab.close()
 
 # Plot the deformed surface
-mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf, scalars=Unorm)
+mesh1 = mlab.triangular_mesh(deformed_surface[:, 0], deformed_surface[:, 1], deformed_surface[:, 2], extern_surf, scalars=Unorm)
+# show triangle edges (wireframe) on the existing deformed mesh
+mesh1.actor.property.edge_visibility = True
+mesh1.actor.property.edge_color = (0.0, 0.0, 0.0)
+mesh1.actor.property.line_width = 0.5
+mesh1.actor.property.opacity = 1.0
+
+# mlab.triangular_mesh(undeformed_surface[:, 0], undeformed_surface[:, 1], undeformed_surface[:, 2], extern_surf, color=(40.0 / 255, 120.0 / 255, 181.0 / 255), opacity=0.5)
+# mlab.triangular_mesh(undeformed_surface[:, 0], undeformed_surface[:, 1], undeformed_surface[:, 2], intern_surf, color=(40.0 / 255, 120.0 / 255, 181.0 / 255), opacity=1.0)
+# mlab.triangular_mesh(undeformed_surface[:, 0], undeformed_surface[:, 1], undeformed_surface[:, 2], intern_surf2, color=(40.0 / 255, 120.0 / 255, 181.0 / 255), opacity=1.0)
 
 mlab.show()

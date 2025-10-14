@@ -45,9 +45,9 @@ bc_name = fe.assembly.add_constraint(
 t1 = time.time()
 
 
-fe.solve(tol_error=1e-6)
+fe.solve()
 
 current_path1 = "Z:/temp/"
-np.save(current_path1 + '/benchmark_result.npy', np.array([fe.solver._GC_list[i].tolist() for i in range(len(fe.solver._GC_list))], dtype=np.float32))
-np.save(current_path1 + '/velocity.npy', np.array([fe.solver._GV_list[i].tolist() for i in range(len(fe.solver._GV_list))], dtype=np.float32))
-np.save(current_path1 + '/acceleration.npy', np.array([fe.solver._GA_list[i].tolist() for i in range(len(fe.solver._GA_list))], dtype=np.float32))
+np.save(current_path1 + '/explicitGC.npy', np.array([fe.solver._GC_list[i].tolist() for i in range(len(fe.solver._GC_list))], dtype=np.float32))
+np.save(current_path1 + '/explicitGV.npy', np.array([fe.solver._GV_list[i].tolist() for i in range(len(fe.solver._GV_list))], dtype=np.float32))
+np.save(current_path1 + '/explicitGA.npy', np.array([fe.solver._GA_list[i].tolist() for i in range(len(fe.solver._GA_list))], dtype=np.float32))

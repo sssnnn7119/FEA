@@ -26,6 +26,7 @@ fem.read_inp(current_path + '/Free.inp')
 fe = FEA.from_inp(fem)
 fe.solver = FEA.solver.StaticImplicitSolver()
 fe.assembly.get_instance('Part-2')._translation = torch.tensor([0, 0, 40.])
+fe.assembly.get_instance('Part-2')._rotation = torch.tensor([0., 0., 0.1])
 
 # elems = FEA.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
 # fe.elems['element-0'].set_materials(elems)

@@ -44,6 +44,7 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
             for mat_type in materials_type:
                 index_now = torch.where(inp.part[part_name].elems_material[elems[key][:, 0], 2].type(torch.int) == mat_type)
 
+                
                 materials_now = materials.initialize_materials(
                     materials_type=mat_type.item(),
                     materials_params=inp.part[part_name].elems_material[elems[key][:, 0]][index_now][:, 3:]

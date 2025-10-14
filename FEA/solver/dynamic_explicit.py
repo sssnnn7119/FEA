@@ -94,7 +94,6 @@ class DynamicExplicitSolver(BaseSolver):
         iteration = 0
         current_time = 0.0
         GA_now = GA0
-        mass_inv = self.get_lumped_mass_inv(GC0)
         while current_time < self._time_end:
             
             # a. 获取上一步的状态
