@@ -24,7 +24,7 @@ class Moment(BaseLoad):
         return self._indices_force, self.moment, torch.zeros([2, 0], dtype=torch.int), torch.zeros([0])
 
     def get_potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
-        return (self.moment * RGC[self.rp_index][3:]).norm()
+        return (self.moment * RGC[self.rp_index][3:]).sum()
 
     def set_required_DoFs(
             self, RGC_remain_index: list[np.ndarray]) -> list[np.ndarray]:

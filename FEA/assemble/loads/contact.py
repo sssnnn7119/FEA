@@ -9,7 +9,7 @@ from ..elements import BaseSurface
 
 class ContactBase(BaseLoad):
     def __init__(self,
-                 penalty_distance_g: float = 1e-4,
+                 penalty_distance_g: float = 1e-5,
                  penalty_factor_g: float = 20.0,
                  penalty_degree: int = 9,
                  penalty_threshold_h: float = 1.5,
