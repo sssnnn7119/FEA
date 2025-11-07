@@ -35,18 +35,14 @@ ins2._rotation = torch.tensor([0.0, 0.0, np.pi/2])
 fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model2', surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
 
-bc_dof = np.array(
-    list(fem.part['final_model'].sets_nodes['surface_0_Bottom']))
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='final_model2', index_nodes=bc_dof))
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model2', set_nodes_name='surface_0_Bottom'))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
 
 rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, -20, 60]))
 
-indexNodes = fem.part['final_model'].sets_nodes['surface_0_Head']
-
-fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model2', indexNodes=indexNodes, rp_name=rp))
+fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model2', set_nodes_name='surface_0_Head', rp_name=rp))
 
 fe.assembly.add_load(FEA.loads.Contact(instance_name1='final_model', instance_name2='final_model2', surface_name1='surface_0_All', surface_name2='surface_0_All'))
 

@@ -14,7 +14,7 @@ class ContactBase(BaseLoad):
                  penalty_degree: int = 9,
                  penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.5,
-                 penalty_start_f: float = -0.2,
+                 penalty_start_f: float = -0.0,
                  penalty_end_f: float = -0.8):
         """
         Initialize the base contact load with common parameters.

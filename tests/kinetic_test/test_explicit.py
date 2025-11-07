@@ -29,10 +29,8 @@ fe.solver = FEA.solver.DynamicExplicitSolver(time_end=0.1, time_per_storage=1e-4
 fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06))
 # fe.assembly.add_load(FEA.loads.BodyForce(instance_name='final_model', element_name='element-0', force_density=[-9.81e-6, 0, 0, ]))
 
-bc_dof = np.array(
-    list(fem.part['final_model'].sets_nodes['surface_0_Bottom']))
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
 
 # rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
 

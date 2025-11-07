@@ -9,7 +9,18 @@ class Concentrate_Force(BaseLoad):
         super().__init__()
         self.rp_name = rp_name
         self.rp_index: int = None
-        self.force = torch.tensor(force)
+        self._force = torch.tensor(force)
+
+    @property
+    def force(self) -> torch.Tensor:
+        return self._force
+    
+    @force.setter
+    def force(self, value: list[float] | torch.Tensor) -> None:
+        if type(value) == list:
+            self._force = torch.tensor(value)
+        else:
+            self._force = value
 
     def initialize(self, assembly):
         super().initialize(assembly)

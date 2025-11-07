@@ -5,34 +5,37 @@ from .base import BaseConstraint
 
 class Couple(BaseConstraint):
 
-    def __init__(self, instance_name: str, indexNodes: np.ndarray, rp_name: str) -> None:
+    def __init__(self, instance_name: str, set_nodes_name: str, rp_name: str) -> None:
         super().__init__()
         self.instance_name = instance_name
-        self.indexNodes = np.sort(list(indexNodes))
+        self.set_nodes_name = set_nodes_name
         self.rp_name = rp_name
+
         
         self._ref_location: torch.Tensor
 
         self._couple_index: int
         self._rp_index: int
         self._instance_RGC_index: int
+        self._indexNodes: np.ndarray
 
     def initialize(self, assembly):
         super().initialize(assembly)
+        self._indexNodes = self._assembly.get_instance(self.instance_name).set_nodes[self.set_nodes_name]
         self._rp_index = self._assembly.get_reference_point(self.rp_name)._RGC_index
         self._couple_index = self._assembly.get_instance(self.instance_name)._RGC_index
 
         instance = self._assembly.get_instance(self.instance_name)
         self._instance_RGC_index = instance._RGC_index
 
-        index_global = instance.nodes[self.indexNodes]
+        index_global = instance.nodes[self._indexNodes]
         self._ref_location = index_global - self._assembly.get_reference_point(self.rp_name).node
 
     def modify_RGC(self, RGC: list[torch.Tensor]) -> torch.Tensor:
         """
         Apply the couple constraint to the displacement vector
         """
-        RGC[self._couple_index][self.indexNodes] = RGC[self._rp_index][:3] + self._rotation3d(
+        RGC[self._couple_index][self._indexNodes] = RGC[self._rp_index][:3] + self._rotation3d(
             RGC[self._rp_index][3:], self._ref_location) - self._ref_location
 
         return RGC
@@ -41,8 +44,8 @@ class Couple(BaseConstraint):
         v = RGC[self._rp_index][:3]
         z = RGC[self._rp_index][3:]
 
-        theta = z.norm()
-        w = (z / z.norm())
+        theta = z.norm() + 1e-20
+        w = (z / theta)
 
         epsilon = torch.zeros([3, 3, 3])
         epsilon[0, 1, 2] = epsilon[1, 2, 0] = epsilon[2, 0, 1] = 1
@@ -58,7 +61,7 @@ class Couple(BaseConstraint):
         """
         Modify the RGC_remain_index
         """
-        RGC_remain_index[self._couple_index][self.indexNodes] = False
+        RGC_remain_index[self._couple_index][self._indexNodes] = False
         RGC_remain_index[self._rp_index][:] = True
         return RGC_remain_index
 
@@ -85,7 +88,7 @@ class Couple(BaseConstraint):
 
         # R
         # region
-        Rrest = R_now[self.indexNodes]
+        Rrest = R_now[self._indexNodes]
 
         Edotv = Rrest.sum(dim=0)
         Edotz = torch.einsum('bj,bjp->p', Rrest, Ydot)
@@ -110,7 +113,7 @@ class Couple(BaseConstraint):
 
         index = torch.where(
             torch.isin(((K_indices[1] - indice_start) // 3),
-                    torch.tensor(self.indexNodes.tolist())))
+                    torch.tensor(self._indexNodes.tolist())))
 
         sort_index = torch.argsort((K_indices[1][index] - indice_start) // 3)
 
@@ -140,9 +143,9 @@ class Couple(BaseConstraint):
             0, Rdotz_indices_flatten,
             Rdotz_values).reshape(indice_max, 3)
         
-        index_remain_dim0 = np.vstack([indice_start + self.indexNodes * 3,
-                                    indice_start + self.indexNodes * 3 + 1,
-                                    indice_start + self.indexNodes * 3 + 2]).T
+        index_remain_dim0 = np.vstack([indice_start + self._indexNodes * 3,
+                                    indice_start + self._indexNodes * 3 + 1,
+                                    indice_start + self._indexNodes * 3 + 2]).T
 
         Edotvv = Rdotv[index_remain_dim0].sum(dim=0)
         Edotzv = torch.einsum('biq,bip->pq', Rdotv[index_remain_dim0], Ydot)
@@ -197,8 +200,8 @@ class Couple(BaseConstraint):
     def _calculate_Ydotz(self, RGC: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         v = RGC[self._rp_index][:3]
         z = RGC[self._rp_index][3:]
-        theta = z.norm()
-        w = (z / z.norm())
+        theta = z.norm() + 1e-20
+        w = (z / theta)
 
         epsilon_indices = [[0, 0, 1, 1, 2, 2], [1, 2, 0, 2, 0, 1],
                         [2, 1, 2, 0, 1, 0]]
@@ -275,7 +278,7 @@ class Couple(BaseConstraint):
         :return: 3D vector (n, 3)
         """
         vector0 = vector0.view(-1, 3)
-        theta = torch.norm(rotation_vector)
+        theta = torch.norm(rotation_vector) + 1e-20
         if theta == 0:
             return vector0
         else:

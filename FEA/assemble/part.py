@@ -106,6 +106,9 @@ class Part:
         Elements of the part.
         """
 
+        self.set_nodes: dict[str, np.ndarray] = {}
+        """Set of nodes for the part."""
+
         self.surfaces = _Surfaces()
         """Surfaces of the part."""
 
@@ -365,6 +368,10 @@ class Instance(BaseObj):
     @property
     def surfaces(self) -> _Surfaces:
         return self.part.surfaces
+
+    @property
+    def set_nodes(self) -> dict[str, np.ndarray]:
+        return self.part.set_nodes
 
     @staticmethod
     def _transform(vector0: torch.Tensor, rotation_vector: torch.Tensor = None):

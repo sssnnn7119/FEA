@@ -287,7 +287,7 @@ class StaticImplicitSolver(BaseSolver):
                     "{:^10.2f}".format(t4 - t3) + \
                     "{:^10.2f}".format(t4 - t1))
             
-            if dGC.abs().max() < tol_error and R.abs().max() < tol_error:
+            if (dGC.abs().max() < tol_error and R.abs().max() < tol_error) or R.abs().max() < 1e-6:
                 break
 
             # if len(energy)>2 and abs((energy[-1]-energy[-2])/energy[-1])<1e-7:

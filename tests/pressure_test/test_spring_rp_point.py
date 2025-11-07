@@ -1,55 +1,59 @@
 import torch
 import os
 import numpy as np
-import time
 import sys
 sys.path.append('.')
 
 import FEA
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 current_path = os.path.dirname(os.path.abspath(__file__))
 
+# Device and dtype (align with other tests)
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
+# 1) Read INP
 fem = FEA.FEA_INP()
-# fem.Read_INP(
-#     'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/2024Arm/WorkspaceCase/CAE/TopOptRun.inp'
-# )
-
-# fem.Read_INP(
-#     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
-# )
- 
 fem.read_inp(current_path + '/C3D4.inp')
 
+# 2) Build controller
 fe = FEA.from_inp(fem)
 fe.solver = FEA.solver.StaticImplicitSolver()
-# elems = FEA.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
-# fe.elems['element-0'].set_materials(elems)
 
-# FEA.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=FEA.elems['C3D4']._elems_index))
+# 3) Load: (optional) keep it simple: no external pressure so spring effect is visible
+# If desired, you can uncomment to add pressure
+fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06))
 
-fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
-                name='pressure-1')
+# 4) Boundary: fix bottom nodes by set name
+fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom')
+)
 
-bc_name = fe.assembly.add_boundary(
-    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
-
+# 5) Reference point at the top and couple with head nodes
 rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
+fe.assembly.add_constraint(
+    FEA.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp)
+)
 
-fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
+# 6) Spring from RP to fixed space point (0,0,100)
+# Note: rest_length=None uses the initial distance (no initial force).
+#       For a visible effect, set rest_length smaller/larger than initial.
+#       Here we choose rest_length=0 to pull the RP toward the target point.
+spring_load = FEA.loads.Spring_RP_Point(rp_name=rp, point=[0, 0, 80], k=1e2, rest_length=0.0)
+fe.assembly.add_load(spring_load)
 
+# 7) Solve
+fe.solve(tol_error=1e-3)
 
-
-t1 = time.time()
-
-
-fe.solve(tol_error=0.01)
-
-
-print(fe.solver.GC)
-print('ok')
+# 8) Report RP translation (first 3 DOFs)
+GC = fe.solver.GC
+# Map GC back to RGC blocks
+RGC = fe.assembly._GC2RGC(GC)
+# RP block index
+rp_obj = fe.assembly.get_reference_point(rp)
+rp_block = RGC[rp_obj._RGC_index]
+print('RP translation:', rp_block[:3].detach().cpu().numpy())
 
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()

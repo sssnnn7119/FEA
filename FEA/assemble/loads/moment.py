@@ -8,7 +8,18 @@ class Moment(BaseLoad):
         super().__init__()
         self.rp_name = rp_name
         self.rp_index: int = None
-        self.moment = torch.tensor(moment)
+        self._moment = torch.tensor(moment)
+
+    @property
+    def moment(self) -> torch.Tensor:
+        return self._moment
+    
+    @moment.setter
+    def moment(self, value: list[float] | torch.Tensor) -> None:
+        if type(value) == list:
+            self._moment = torch.tensor(value)
+        else:
+            self._moment = value
 
     def initialize(self, assembly):
         super().initialize(assembly)
@@ -24,6 +35,8 @@ class Moment(BaseLoad):
         return self._indices_force, self.moment, torch.zeros([2, 0], dtype=torch.int), torch.zeros([0])
 
     def get_potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
+        if type(self.moment) == list:
+            self.moment = torch.tensor(self.moment)
         return (self.moment * RGC[self.rp_index][3:]).sum()
 
     def set_required_DoFs(

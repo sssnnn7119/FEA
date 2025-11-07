@@ -36,21 +36,19 @@ fe.assembly.get_instance('Part-2')._translation = torch.tensor([0, 0, 40.])
 fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.02),
                 name='pressure-1')
 
-bc_dof = fem.part['final_model'].sets_nodes['surface_0_Bottom']
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
                                     
 
 
-bc_dof2 = list(fem.part['Part-2'].sets_nodes['fix'])
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='Part-2', index_nodes=bc_dof2))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='Part-2', set_nodes_name='fix'))
+bc_dof2 = fe.assembly.get_instance('Part-2').set_nodes['fix']
 
 
 rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
 
-indexNodes = fem.part['final_model'].sets_nodes['surface_0_Head']
-fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', indexNodes=indexNodes, rp_name=rp))
+fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
 
 fe.assembly.add_load(FEA.loads.Contact(instance_name1='final_model', instance_name2='Part-2', surface_name1='surface_0_All', surface_name2='surfaceblock'))
 

@@ -39,15 +39,13 @@ fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set
 fe.assembly.add_load(FEA.loads.Pressure(instance_name='final_model', surface_set='surface_3_All', pressure=0.02),
                 name='pressure-3')
 
-bc_dof = fem.part['final_model'].sets_nodes['surface_0_Bottom']
-bc_name = fe.assembly.add_constraint(
-    FEA.constraints.Boundary_Condition(instance_name='final_model', index_nodes=bc_dof))
+bc_name = fe.assembly.add_boundary(
+    FEA.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
                                     
 
 rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 70]))
 
-indexNodes = fem.part['final_model'].sets_nodes['surface_0_Head']
-fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', indexNodes=indexNodes, rp_name=rp))
+fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
 
 fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_0_All'))
 fe.assembly.add_load(FEA.loads.ContactSelf(instance_name='final_model',surface_name='surface_1_All'))

@@ -3,7 +3,7 @@ import torch
 from .inp import FEA_INP
 from .controller import FEAController
 from .assemble import Part, Instance, ReferencePoint, Assembly
-from .assemble import materials, elements, loads, constraints, surfaces
+from .assemble import materials, elements, loads, constraints, surfaces, boundarys
 from . import solver
 
 
@@ -27,6 +27,10 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
         part_nodes = inp.part[part_name]
 
         part_now = Part(part_nodes.nodes[:, 1:])
+
+        # define the set of nodes
+        for set_name, node_indices in part_nodes.sets_nodes.items():
+            part_now.set_nodes[set_name] = np.unique(np.array(list(node_indices)))
 
         assembly_now.add_part(part=part_now, name=part_name)
         if create_instance:

@@ -17,9 +17,9 @@ class ReferencePoint(BaseObj):
         """
         super().__init__()
         if isinstance(node, list):
-            node = torch.tensor(node, dtype=torch.float64)
+            node = torch.tensor(node)
         elif isinstance(node, np.ndarray):
-            node = torch.tensor(node.tolist(), dtype=torch.float64)
+            node = torch.tensor(node.tolist())
         self.node = node
         self._RGC_requirements = 6
 

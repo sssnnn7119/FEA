@@ -40,7 +40,8 @@ rp = fe.assembly.add_reference_point(FEA.ReferencePoint([0, 0, 80]))
 
 fe.assembly.add_constraint(FEA.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
 
-
+# 也可直接对参考点施加边界（新接口）：
+# fe.assembly.add_boundary(FEA.boundarys.Boundary_Condition_RP(rp_name=rp, indexDoF=[0,1,2,3,4,5]))
 
 t1 = time.time()
 

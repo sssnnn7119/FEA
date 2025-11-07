@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from . import Instance
 from . import ReferencePoint
-from . import loads, constraints
+from . import loads, constraints, boundarys
 from .part import _Surfaces, Part
 
 class Assembly:
@@ -28,6 +28,8 @@ class Assembly:
         """Dictionary to store loads with load names as keys and Load objects as values."""
         self._constraints: dict[str, constraints.BaseConstraint] = {}
         """Dictionary to store constraints with constraint names as keys and Constraint objects as values."""
+        self._boundarys: dict[str, boundarys.BaseBoundary] = {}
+        """Dictionary to store boundary conditions with names as keys and Boundary objects as values."""
 
 
         self.RGC: list[torch.Tensor]
@@ -88,6 +90,7 @@ class Assembly:
         self._loads = dict(sorted(self._loads.items()))
         self._constraints = dict(sorted(self._constraints.items()))
         self._reference_points = dict(sorted(self._reference_points.items()))
+        self._boundarys = dict(sorted(self._boundarys.items()))
         # endregion
 
         # region initialize the RGC
@@ -119,6 +122,11 @@ class Assembly:
                 size=self._constraints[c]._RGC_requirements)
             self._constraints[c].set_RGC_index(RGC_index)
 
+        for b in self._boundarys.keys():
+            RGC_index = self._allocate_RGC(
+                size=self._boundarys[b]._RGC_requirements)
+            self._boundarys[b].set_RGC_index(RGC_index)
+
         # endregion
 
         # region initialize the elements, loads, and constraints
@@ -139,6 +147,10 @@ class Assembly:
         for c in self._constraints.values():
             c.initialize(self)
 
+        # initialize the boundary conditions
+        for b in self._boundarys.values():
+            b.initialize(self)
+
         # endregion
 
         # region modify the RGC_remain_index
@@ -150,6 +162,10 @@ class Assembly:
 
         for c in self._constraints.values():
             self.RGC_remain_index = c.set_required_DoFs(self.RGC_remain_index)
+
+        # Finally, apply boundary conditions to deactivate Dirichlet DOFs
+        for b in self._boundarys.values():
+            self.RGC_remain_index = b.set_required_DoFs(self.RGC_remain_index)
 
         self.RGC_remain_index_flatten = np.concatenate([
             self.RGC_remain_index[i].reshape(-1)
@@ -470,6 +486,9 @@ class Assembly:
         for c in self._constraints.values():
             RGC = c.modify_RGC(RGC)
 
+        for b in self._boundarys.values():
+            RGC = b.modify_RGC(RGC)
+
         return RGC
 
     def _RGC2GC(self, RGC: list[torch.Tensor]):
@@ -607,6 +626,19 @@ class Assembly:
         self._loads[name] = load
 
         return name
+    
+    def add_loads(self, loads_dict: dict[str, loads.BaseLoad]):
+        """
+        Add multiple loads to the FEA model.
+
+        Parameters:
+            loads_dict (dict): A dictionary where keys are load names and values are Load.Force_Base objects.
+
+        Returns:
+            None
+        """
+        for name, load in loads_dict.items():
+            self.add_load(load, name)
 
     def get_load(self, name: str) -> loads.BaseLoad:
         """
@@ -637,6 +669,15 @@ class Assembly:
             del self._loads[name]
         else:
             raise ValueError(f"Load '{name}' not found in the model.")
+
+    def delete_all_loads(self):
+        """
+        Delete all loads from the FEA model.
+
+        Returns:
+            None
+        """
+        self._loads.clear()
 
     def add_constraint(self,
                        constraint: constraints.BaseConstraint,
@@ -688,5 +729,40 @@ class Assembly:
             del self._constraints[name]
         else:
             raise ValueError(f"Constraint '{name}' not found in the model.")
+
+    # region Boundary Management
+
+    def add_boundary(self, boundary: object, name: str = None):
+        """
+        Add a boundary condition object to the model.
+
+        Parameters:
+            boundary: The boundary condition object (from assemble.boundarys).
+
+        Returns:
+            str: The name of the boundary.
+        """
+        if name is None:
+            name = boundary.__class__.__name__
+            number = len(self._boundarys)
+            while (f"{name}-{number}") in self._boundarys:
+                number += 1
+            name = f"{name}-{number}"
+        self._boundarys[name] = boundary
+        return name
+
+    def get_boundary(self, name: str):
+        if name in self._boundarys:
+            return self._boundarys[name]
+        else:
+            raise ValueError(f"Boundary '{name}' not found in the model.")
+
+    def delete_boundary(self, name: str):
+        if name in self._boundarys:
+            del self._boundarys[name]
+        else:
+            raise ValueError(f"Boundary '{name}' not found in the model.")
+
+    # endregion
 
     # endregion
