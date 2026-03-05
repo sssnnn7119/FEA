@@ -66,7 +66,7 @@ class StaticImplicitSolver(BaseSolver):
         if type(result) == bool:
             return result
         
-        self.GC = result
+        self.GC = result[0]
         self.assembly.GC = self.GC
         self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.GC))
         t2 = time.time()
@@ -78,7 +78,7 @@ class StaticImplicitSolver(BaseSolver):
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
         # build the result object
-        return StaticResult(GC=self.GC, load_params=self.assembly.get_load_parameters())
+        return StaticResult(GC=self.GC, load_params=self.assembly.get_load_parameters(), total_time=result[1], time_items=result[2])
    
     def get_jacobian(self, result: StaticResult) -> torch.Tensor:
         """
@@ -258,6 +258,10 @@ class StaticImplicitSolver(BaseSolver):
                          GC: torch.Tensor,
                          tol_error: float):
 
+        # record the information of the solver
+        total_time = 0.0
+        time_items = {'assemble': [], 'linear': [], 'line_search': [], 'step': []}
+
         # iteration now
         self._iter_now = 0
 
@@ -365,12 +369,18 @@ class StaticImplicitSolver(BaseSolver):
                     "{:^10.2f}".format(t4 - t3) + \
                     "{:^10.2f}".format(t4 - t1))
             
+            time_items['assemble'].append(t2 - t1)
+            time_items['linear'].append(t3 - t2)
+            time_items['line_search'].append(t4 - t3)
+            time_items['step'].append(t4 - t1)
+            
             if (dGC.abs().max() < tol_error and R.abs().max() < tol_error) or R.abs().max() < 1e-6:
                 break
 
-            # if len(energy)>2 and abs((energy[-1]-energy[-2])/energy[-1])<1e-7:
-            #     break
-        return GC
+        
+        total_time = time.time() - t00
+
+        return GC, total_time, time_items
 
     def _solve_linear_equation(self,
                                K_indices: torch.Tensor,

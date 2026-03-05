@@ -26,14 +26,14 @@ def conjugate_gradient(A_indices: torch.Tensor,
 
     r = b - A @ x
     p = r
-    rsold = torch.dot(r, r)
+    rsold = (r**2).sum()
 
     for i in range(max_iter):
         Ap = A @ p
         alpha = rsold / torch.dot(p, Ap)
         x = x + alpha * p
         r = r - alpha * Ap
-        rsnew = torch.dot(r, r)
+        rsnew = (r**2).sum()
         if rsnew / r_r0 < tol:
             break
         p = r + rsnew / rsold * p

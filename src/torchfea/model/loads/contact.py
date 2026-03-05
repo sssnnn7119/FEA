@@ -13,7 +13,8 @@ class ContactBase(BaseLoad):
                  penalty_start_g: float = -0.8,
                  penalty_end_g: float = -0.85,
                  penalty_threshold_h: float = 1.5,
-                 penalty_ratio_h: float = 0.9,):
+                 penalty_ratio_h: float = 0.9,
+                 mesh_size: float = 1.0, **kwargs):
         """
         Initialize the base contact load with common parameters.
 
@@ -24,6 +25,7 @@ class ContactBase(BaseLoad):
             penalty_end_g (float): The penalty threshold for the angle factor g.
             penalty_threshold_h (float): The penalty threshold for contact.
             penalty_ratio_h (float): The penalty ratio for contact.
+            mesh_size (float): The size of the mesh elements.
         """
         super().__init__()
 
@@ -59,6 +61,9 @@ class ContactBase(BaseLoad):
 
         self.instance_name2: str
         """The name of the second instance to apply the load on."""
+
+        self.mesh_size = mesh_size
+        """The size of the mesh elements, used for filtering point pairs in contact detection."""
 
 
     @property
@@ -132,7 +137,7 @@ class ContactBase(BaseLoad):
         else:
             points = elems_mid1.detach().cpu().numpy()
         kdtree = scipy.spatial.cKDTree(points)
-        pairs = torch.from_numpy(kdtree.query_pairs(max_search_length_ratio * self.penalty_threshold_h, output_type='ndarray')).to(nodes1.device).T
+        pairs = torch.from_numpy(kdtree.query_pairs(max_search_length_ratio * self.penalty_threshold_h + self.mesh_size, output_type='ndarray')).to(nodes1.device).T
         index_revert = torch.where(pairs[0] >= pairs[1])[0]
         pairs[:, index_revert] = pairs[:, index_revert][[1, 0]]
         if not self.is_self_contact:
@@ -149,9 +154,9 @@ class ContactSelf(ContactBase):
     """
 
     def __init__(self, instance_name: str, surface_name: str,
-                 ignore_min_normal: float = -0.5,
-                 ignore_max_normal: float = 0.0, 
-                 initial_detact_ratio: float = 2.0, **kwargs):
+                 ignore_min_normal: float = 0.5,
+                 ignore_max_normal: float = 1.5, 
+                 initial_detact_ratio: float = 1.5, **kwargs):
         """
         Initialize the self-contact load.
 

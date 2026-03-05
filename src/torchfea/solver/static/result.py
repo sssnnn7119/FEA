@@ -18,7 +18,7 @@ class StaticResult(BaseResult):
     The result of a static finite element analysis (FEA) simulation.
     """
 
-    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor]):
+    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], total_time: float = 0.0, time_items: dict[str, list[float]] = None):
         super().__init__()
         self.GC = GC.detach().clone()
         """ 
@@ -44,6 +44,12 @@ class StaticResult(BaseResult):
         """
         Flag indicating whether the stiffness matrix has been factorized
         """
+
+        self.total_time: float = 0.0
+        """Total time taken for the simulation"""
+
+        self.time_items: dict[str, list[float]] = time_items if time_items is not None else {}
+        """Dictionary to store time taken for different items in the simulation"""
 
     def factorize_stiffness_matrix(self, assembly: 'Assembly'):
         """
