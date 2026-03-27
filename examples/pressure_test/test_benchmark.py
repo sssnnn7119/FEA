@@ -21,7 +21,7 @@ fem = torchfea.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
 
-fem.read_inp(current_path + '/C3D10.inp')
+fem.read_inp(current_path + '/C3D4.inp')
 
 fe = torchfea.from_inp(fem)
 fe.solver = torchfea.solver.StaticImplicitSolver()
@@ -46,8 +46,10 @@ mate: torchfea.materials.NeoHookean = fe.assembly.get_part('final_model').elems[
 
 t1 = time.time()
 
-fe.solve(tol_error=0.01)
-
+result = fe.solve(tol_error=0.01)
+result.save('temp.npz')
+result = torchfea.solver.StaticResult.load('temp.npz')
+os.remove('temp.npz')
 
 print(fe.solver.GC)
 print('ok')

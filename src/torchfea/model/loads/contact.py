@@ -109,7 +109,7 @@ class ContactBase(BaseLoad):
         self._parameters[5] = value
 
 
-    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length_ratio: float = 2.5):
+    def _filter_point_pairs(self, surface_element1: BaseSurface, surface_element2: BaseSurface, nodes1: torch.Tensor, nodes2: torch.Tensor, max_search_length_ratio: float = 1.5):
         """
         Filter point pairs between surfaces for contact detection.
         
@@ -154,7 +154,7 @@ class ContactSelf(ContactBase):
     """
 
     def __init__(self, instance_name: str, surface_name: str,
-                 ignore_min_normal: float = 0.5,
+                 ignore_min_normal: float = -0.5,
                  ignore_max_normal: float = 1.5, 
                  initial_detact_ratio: float = 1.5, **kwargs):
         """

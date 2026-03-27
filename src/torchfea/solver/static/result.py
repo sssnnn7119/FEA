@@ -45,7 +45,7 @@ class StaticResult(BaseResult):
         Flag indicating whether the stiffness matrix has been factorized
         """
 
-        self.total_time: float = 0.0
+        self.total_time: float = total_time
         """Total time taken for the simulation"""
 
         self.time_items: dict[str, list[float]] = time_items if time_items is not None else {}
@@ -80,7 +80,7 @@ class StaticResult(BaseResult):
             for key, value in self.load_params.items():
                 load_params[key] = value.cpu().numpy()
 
-        np.savez_compressed(file=path, GC=self.GC.cpu().numpy(), load_params=load_params)
+        np.savez_compressed(file=path, GC=self.GC.cpu().numpy(), load_params=load_params, total_time=self.total_time, time_items=self.time_items)
     
     @classmethod
     def load(cls, path: str) -> "StaticResult":
@@ -98,4 +98,6 @@ class StaticResult(BaseResult):
         if load_params_np is not None:
             for key, value in load_params_np.items():
                 load_params[key] = torch.tensor(value.tolist())
-        return cls(GC=GC, load_params=load_params)
+        total_time = float(data.get('total_time', 0.0))
+        time_items = data.get('time_items', {}).item() if 'time_items' in data else {}
+        return cls(GC=GC, load_params=load_params, total_time=total_time, time_items=time_items)

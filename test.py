@@ -1,0 +1,2 @@
+
+func: Callable[..., torch.Tensor],

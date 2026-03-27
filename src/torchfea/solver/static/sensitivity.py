@@ -118,3 +118,36 @@ def get_sensitivity_static(
     finally:
         # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
         _detach_recursive(assembly)
+
+
+def get_jacobian_sensitivity_static(
+    fe_result: StaticResult,
+    assembly: Assembly,
+    design_vars: torch.Tensor,
+    apply_func: Callable[[Assembly, torch.Tensor], None],
+    load_names: Optional[list[str]] = None
+) -> torch.Tensor:
+    """
+    Compute the Jacobian sensitivity (dR/dVars) for the static problem.
+
+    This function calculates the sensitivity of the residual forces with respect to design variables.
+    It is useful for gradient-based optimization where the objective is directly related to the residuals.
+
+    Args:
+        fe_result (StaticResult): The solution containing the factorized stiffness matrix (K) and
+            displacement/generalized coordinates (GC). K should be pre-factorized for efficiency.
+        assembly (Assembly): The Finite Element Assembly object containing parts, elements, loads, etc.
+        design_vars (torch.Tensor): A tensor representing the design variables.
+            It must be the source of gradients for `apply_func`.    
+        apply_func (Callable[[Assembly, torch.Tensor], None]):
+            A callback to apply design variables to the assembly.
+            - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
+            - Behavior: Modify `assembly` in-place using `design_vars`. Operations must be traceable
+              by Autograd (e.g., `part.nodes = original_nodes + design_vars.reshape_as(part.nodes)`).
+        load_names (Optional[list[str]]): A list of load names to include in the sensitivity analysis.
+            If None, all loads in the assembly will be included. This allows for selective sensitivity analysis
+            when only certain loads are of interest.
+    Returns:
+        dict[str, torch.Tensor]: A dictionary mapping load names to their respective Jacobian sensitivity tensors.
+            Each tensor has shape (num_dofs, num_load_params_for_that_load) and represents the sensitivity of the residual forces to the parameters of that load.
+    """
