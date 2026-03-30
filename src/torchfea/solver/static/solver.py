@@ -351,7 +351,6 @@ class StaticImplicitSolver(BaseSolver):
             # 7. sensitivity for GC
             W0 = -fe_result.K_solver.solve(fe_result.K_sp, Ldx.cpu().numpy())
             W0_tensor = torch.tensor(W0, dtype=GC_grad.dtype, device=GC_grad.device)
-            obj_part_x = (W0_tensor * R_grad).sum()
 
             # 8. For each parameter, compute the Jacobian sensitivity using the chain rule:
 
@@ -412,9 +411,13 @@ class StaticImplicitSolver(BaseSolver):
 
                 obj_part_y -= torch.autograd.functional.jacobian(get_Rdp, total_load_params[para_idx: para_idx+1], create_graph=True)
 
-            wKdpKinv = fe_result.K_solver.solve(fe_result.K_sp, wKdp.cpu().numpy())
+            if wKdp.abs().sum() > 1e-8:
+                wKdpKinv = fe_result.K_solver.solve(fe_result.K_sp, wKdp.cpu().numpy())
+            else:
+                wKdpKinv = torch.zeros_like(wKdp)
             wKdpKinv_tensor = torch.tensor(wKdpKinv, dtype=GC_grad.dtype, device=GC_grad.device)
-            obj_part_y += (wKdpKinv_tensor * R_grad).sum()
+            
+            obj_part_x = ((W0_tensor + wKdpKinv_tensor) * R_grad).sum()
 
             obj_total = obj_part_x + obj_part_y
             obj_total.backward()
