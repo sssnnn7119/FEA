@@ -321,7 +321,10 @@ class StaticImplicitSolver(BaseSolver):
                 jacobian_dict = self.get_jacobian(result=fe_result, load_names=load_names)
                 fe_result.jacobian = jacobian_dict
 
-            jacobian = torch.cat([jacobian_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
+            if len(jacobian_dict.keys()) == 0:
+                jacobian = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
+            else:
+                jacobian = torch.cat([jacobian_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
 
             # 3. Prepare Autograd graph
             design_vars_grad = design_vars.clone().detach().requires_grad_(True)
@@ -345,8 +348,12 @@ class StaticImplicitSolver(BaseSolver):
                 Ldx = torch.zeros_like(GC_grad)
             else:
                 Ldx = GC_grad.grad.clone().detach()
-            Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in jacobian_grad.items()}
-            Ldy = torch.cat([Ldy_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
+
+            if len(load_names) > 0:
+                Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in jacobian_grad.items()}
+                Ldy = torch.cat([Ldy_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
+            else:
+                Ldy = torch.zeros((GC_grad.numel(), 0), device=GC_grad.device, dtype=GC_grad.dtype)
 
             # 7. sensitivity for GC
             W0 = -fe_result.K_solver.solve(fe_result.K_sp, Ldx.cpu().numpy())
@@ -359,7 +366,11 @@ class StaticImplicitSolver(BaseSolver):
             for load_name in load_names:
                 load = self.assembly._loads[load_name]
                 total_load_params_list.append(load._parameters.flatten())
-            total_load_params = torch.cat(total_load_params_list, dim=0)
+
+            if len(total_load_params_list) > 0:
+                total_load_params = torch.cat(total_load_params_list, dim=0)
+            else:
+                total_load_params = torch.zeros((0,), device=GC_grad.device, dtype=GC_grad.dtype)
             num_load_params = total_load_params.numel()
 
             obj_part_y = torch.zeros(1, device=GC_grad.device, dtype=GC_grad.dtype)
