@@ -72,13 +72,13 @@ def apply_design_vars(assembly: torchfea.Assembly,
 jacobian = solver.get_jacobian(feresult, load_names=['pressure-1', 'pressure-2'])
 
 def compute_objective_jacobian(GC: torch.Tensor,
-                               jacobian: torch.Tensor,
+                               jacobian: dict[str, torch.Tensor],
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    return jacobian[-2, 0] * GC[-2] * jacobian[-2, 1]
+    return jacobian['pressure-1'][-2, 0] * GC[-2] * jacobian['pressure-2'][-2, 0]
 
-jacobian, grad_sensi_jacobian = solver.get_jacobian_sensitivity(
+grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     fe_result=feresult,
     design_vars=part.nodes.reshape(-1),
     load_names=['pressure-1', 'pressure-2'],
@@ -86,14 +86,13 @@ jacobian, grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     compute_objective_func=compute_objective_jacobian,
     )
 grad_sensi_jacobian = grad_sensi_jacobian.reshape(part.nodes.shape)
-jacobian0 = torch.cat([jacobian[load_name] for load_name in ['pressure-1', 'pressure-2']], dim=1)
 nodes0 = part.nodes.clone().detach()
 epsilon = 1e-3
 test_pair = ((2, 1), (10, 0), (5, 1))
 
 index_test = torch.where(grad_sensi_jacobian.abs() > 0.000001)
 
-obj0 = compute_objective_jacobian(GC0, jacobian0, fe.assembly)
+obj0 = compute_objective_jacobian(GC0, feresult.jacobian, fe.assembly)
 
 for i in range(index_test[0].shape[0]):
     indtest1 = index_test[0][i].item()
@@ -105,7 +104,6 @@ for i in range(index_test[0].shape[0]):
     result1 = fe.solve(tol_error=1e-6, GC0=GC0)
     GC1 = fe.assembly.GC.clone().detach()
     jacobian1 = solver.get_jacobian(result1, load_names=['pressure-1', 'pressure-2'])
-    jacobian1 = torch.cat([jacobian1[load_name] for load_name in ['pressure-1', 'pressure-2']], dim=1)
     obj1 = compute_objective_jacobian(GC1, jacobian1, fe.assembly)
 
     diff = (obj1 - obj0) / epsilon

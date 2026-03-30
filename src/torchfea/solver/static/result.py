@@ -18,11 +18,20 @@ class StaticResult(BaseResult):
     The result of a static finite element analysis (FEA) simulation.
     """
 
-    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], total_time: float = 0.0, time_items: dict[str, list[float]] = None):
+    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], jacobian: dict[str, torch.Tensor] = None, total_time: float = 0.0, time_items: dict[str, list[float]] = None):
         super().__init__()
         self.GC = GC.detach().clone()
         """ 
         Global displacements tensor
+        """
+
+        if jacobian is None:
+            jacobian = {}
+        else:
+            jacobian = {k: v.detach().clone() for k, v in jacobian.items()}
+        self.jacobian: dict[str, torch.Tensor] = jacobian
+        """
+        The Jacobian matrix (dGC/dLoadParams) of the static FEA result.
         """
 
         self.load_params: dict[str, torch.Tensor] = {k: v.detach().clone() for k, v in load_params.items()}
@@ -50,6 +59,19 @@ class StaticResult(BaseResult):
 
         self.time_items: dict[str, list[float]] = time_items if time_items is not None else {}
         """Dictionary to store time taken for different items in the simulation"""
+
+    def __getstate__(self):
+        """Exclude non-pickle-able objects (K_solver/K_sp) from serialized state."""
+        state = self.__dict__.copy()
+        state.pop('K_solver', None)
+        state.pop('K_sp', None)
+        return state
+
+    def __setstate__(self, state):
+        """Restore state and reset K_solver/K_sp to None after deserialization."""
+        self.__dict__.update(state)
+        self.K_solver = None
+        self.K_sp = None
 
     def factorize_stiffness_matrix(self, assembly: 'Assembly'):
         """
