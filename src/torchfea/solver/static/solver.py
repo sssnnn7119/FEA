@@ -440,6 +440,192 @@ class StaticImplicitSolver(BaseSolver):
 
         return sensitivity
     
+    def get_jacobian_sensitivity_multistep(        
+        self,
+        fe_results: list[StaticResult],
+        design_vars: torch.Tensor,
+        load_names: Optional[list[str]],
+        apply_func: Callable[[Assembly, torch.Tensor], None] ,
+        compute_objective_funcs: list[Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str]], torch.Tensor]],
+        other_args: Optional[dict[str]] = None
+    ) -> torch.Tensor:
+        """
+        Compute the Jacobian sensitivity (dR/dVars) for the static problem.
+
+        This function computes the sensitivity of the residual forces with respect to design variables,
+        which is essential for gradient-based optimization and design.
+
+        Args:
+            fe_results (list[StaticResult]): A list of result objects containing the current state and factorized stiffness matrices.
+            design_vars (torch.Tensor): A tensor representing the design variables.
+                It must be the source of gradients for `apply_func`.
+            load_names (list[str], optional): The names of the loads for which to compute the Jacobian sensitivity. If None, all loads are considered.
+            apply_func (Callable[[Assembly, torch.Tensor, None]): 
+                A callback to apply design variables to the assembly.
+                - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
+                - Behavior: Modify `assembly` in-place using `design_vars`. Operations must be traceable
+                by Autograd (e.g., `part.nodes = original_nodes + design_vars.reshape_as(part.nodes)`).
+            compute_objective_funcs (list[Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str, torch.Tensor]], torch.Tensor]]): 
+                A list of callbacks to compute the objective scalars.
+                - Signature: `def compute_objective_func(GC: torch.Tensor, jacobian: dict[str, torch.Tensor], assembly: Assembly, other_args: Optional[dict[str]]) -> torch.Tensor`
+                - Args: `GC` is the displacement vector (detached from physics but tracking gradient).
+                - Returns: A scalar tensor representing the objective value (e.g., compliance, stress).
+            other_args (dict[str], optional): Additional arguments for the objective function.
+        Returns:
+            torch.Tensor: The sensitivity of the objective with respect to design variables.
+                Shape matches `design_vars`.
+        """
+        try:
+            design_vars_grad = design_vars.clone().detach().requires_grad_(True)
+            apply_func(self.assembly, design_vars_grad)
+            self.assembly.initialize()
+
+            print("Computing Jacobian sensitivity for each step:")
+
+            for idx, fe_result in enumerate(fe_results):
+                # 0. Set load parameters and prepare jacobian
+                self.assembly.set_load_parameters(fe_results[0].load_params)
+
+                # 1. Factorize system if needed
+                if fe_result.if_factorized is False:
+                    fe_result.factorize_stiffness_matrix(assembly=self.assembly)
+
+                # 2. Prepare Jacobian
+                if fe_result.jacobian.keys() >= set(load_names):
+                    jacobian_dict = fe_result.jacobian
+                else:                
+                    jacobian_dict = self.get_jacobian(result=fe_result, load_names=load_names)
+                    fe_result.jacobian = jacobian_dict
+
+                if len(jacobian_dict.keys()) == 0:
+                    jacobian = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
+                else:
+                    jacobian = torch.cat([jacobian_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
+
+                # 3. Prepare Autograd graph
+                GC_grad = fe_result.GC.clone().detach().requires_grad_(True)
+                jacobian_grad = {k: v.detach().clone().requires_grad_(True) for k, v in jacobian_dict.items()}
+                
+                # 4. Get R for the current step
+                R_grad = self.assembly.assemble_force(GC=fe_result.GC)
+
+                # 5. Compute first adjoint vector W0
+                if other_args is None:
+                    objective = compute_objective_funcs[idx](GC_grad, jacobian_grad, self.assembly)
+                else:
+                    objective = compute_objective_funcs[idx](GC_grad, jacobian_grad, self.assembly, other_args)
+
+                # 6. Get Ldx and Ldy for the adjoint solve
+                objective.backward(retain_graph=True)
+                if GC_grad.grad is None:
+                    Ldx = torch.zeros_like(GC_grad)
+                else:
+                    Ldx = GC_grad.grad.clone().detach()
+
+                if len(load_names) > 0:
+                    Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in jacobian_grad.items()}
+                    Ldy = torch.cat([Ldy_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
+                else:
+                    Ldy = torch.zeros((GC_grad.numel(), 0), device=GC_grad.device, dtype=GC_grad.dtype)
+
+                # 7. sensitivity for GC
+                W0 = -fe_result.K_solver.solve(fe_result.K_sp, Ldx.cpu().numpy())
+                W0_tensor = torch.tensor(W0, dtype=GC_grad.dtype, device=GC_grad.device)
+
+                # 8. For each parameter, compute the Jacobian sensitivity using the chain rule:
+
+                ## get the current load parameters as a single tensor
+                total_load_params_list = []
+                for load_name in load_names:
+                    load = self.assembly._loads[load_name]
+                    total_load_params_list.append(load._parameters.flatten())
+
+                if len(total_load_params_list) > 0:
+                    total_load_params = torch.cat(total_load_params_list, dim=0)
+                else:
+                    total_load_params = torch.zeros((0,), device=GC_grad.device, dtype=GC_grad.dtype)
+                num_load_params = total_load_params.numel()
+
+                obj_part_y = torch.zeros(1, device=GC_grad.device, dtype=GC_grad.dtype)
+                K_indices = self.assembly.assemble_Stiffness_Matrix(GC=fe_result.GC)[1]
+                wKdp = torch.zeros_like(fe_result.GC)
+                for para_idx in range(num_load_params):
+                    ### compute the Jacobian sensitivity using the chain rule:
+                    Ldy_now = Ldy[:, para_idx]
+                    if Ldy_now.abs().sum() < 1e-8:
+                        continue
+
+
+                    W1 = fe_result.K_solver.solve(fe_result.K_sp, Ldy_now.cpu().numpy())
+                    W1_tensor = torch.tensor(W1, dtype=GC_grad.dtype, device=GC_grad.device)
+                    ### evaluate the stiffness matrix sensitivity dK/dPara using autograd
+                    def get_Kdp(load_now: torch.Tensor):
+                        GC_now = fe_result.GC + jacobian[:, para_idx] * (load_now - load_now.detach())
+                        index_now = 0
+                        for load_name in load_names:
+                            load = self.assembly._loads[load_name]
+                            param_len = load._parameters.numel()
+                            idx_now = para_idx - index_now
+                            if 0 <= idx_now < param_len:
+                                load._parameters[idx_now] = load_now
+                                break
+                            index_now += param_len
+                        K_values = self.assembly.assemble_Stiffness_Matrix(GC=GC_now)[2]
+                        return K_values
+                    Kdp_values = torch.autograd.functional.jvp(
+                        get_Kdp, total_load_params[para_idx: para_idx+1], torch.ones([1]), create_graph=False)[1]
+                    Kdp = torch.sparse_coo_tensor(K_indices, Kdp_values, size=fe_result.K_sp.shape)
+
+                    wKdp += Kdp@ W1_tensor
+
+                    ### evaluate the stiffness matrix sensitivity dR/dPara using autograd
+                    def get_Rdp(load_now: torch.Tensor):
+                        GC_now = GC_grad + jacobian[:, para_idx] * (load_now - load_now.detach())
+                        index_now = 0
+                        for load_name in load_names:
+                            load = self.assembly._loads[load_name]
+                            param_len = load._parameters.numel()
+                            idx_now = para_idx - index_now
+                            if 0 <= idx_now < param_len:
+                                load._parameters[idx_now] = load_now
+                                break
+                            index_now += param_len
+                        R = self.assembly.assemble_force(GC=GC_now)
+                        return (R * W1_tensor).sum()
+
+                    obj_part_y -= torch.autograd.functional.jacobian(get_Rdp, total_load_params[para_idx: para_idx+1], create_graph=True)
+
+                if wKdp.abs().sum() > 1e-8:
+                    wKdpKinv = fe_result.K_solver.solve(fe_result.K_sp, wKdp.cpu().numpy())
+                else:
+                    wKdpKinv = torch.zeros_like(wKdp)
+                wKdpKinv_tensor = torch.tensor(wKdpKinv, dtype=GC_grad.dtype, device=GC_grad.device)
+                
+                obj_part_x = ((W0_tensor + wKdpKinv_tensor) * R_grad).sum()
+
+                obj_total = obj_part_x + obj_part_y
+
+                if idx < len(fe_results) - 1:
+                    obj_total.backward(retain_graph=True)
+                else:
+                    obj_total.backward()
+
+                fe_result.remove_stored_factorization()
+
+                print(f"Step {idx+1}/{len(fe_results)} sensitivity computed.\r", end='')
+
+                
+            sensitivity = design_vars_grad.grad.clone().detach()
+
+        finally:            
+            # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
+            self._detach_recursive(self.assembly)
+
+        print("\nAll steps sensitivity computation completed.")
+
+        return sensitivity
+        
+
     @classmethod
     def _detach_recursive(cls, obj: object, visited: set=None):
         """

@@ -89,6 +89,18 @@ class StaticResult(BaseResult):
         self.K_solver.factorize(self.K_sp)
         self.if_factorized = True
 
+    def remove_stored_factorization(self):
+        """
+        Remove the stored factorization of the stiffness matrix to free up memory.
+        """
+        if self.K_solver is not None:
+            self.K_solver.free_memory(everything=True)
+            self.K_solver = None
+            self.K_sp = None
+            self.if_factorized = False
+            import gc
+            gc.collect()
+
     def save(self, path: str):
         """
         Save the static FEA result to a file.
