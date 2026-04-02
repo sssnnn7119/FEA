@@ -42,7 +42,7 @@ class BaseSolver:
             tol_error (float, optional): Tolerance error for convergence. Defaults to 1e-7.
 
         Returns:
-            BaseResult: The result of the finite element analysis.
+            BaseResult: The result of the finite element analysis. The result object should include convergence metadata (e.g. `converged`).
         """
         pass
 

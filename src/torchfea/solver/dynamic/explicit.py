@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 import time
 import torch
 from ..basesolver import BaseSolver
+from .result import DynamicResult
 
 class DynamicExplicitSolver(BaseSolver):
 
@@ -142,7 +143,16 @@ class DynamicExplicitSolver(BaseSolver):
         t_end = time.time()
         print('---' * 8, 'Explicit FEA Finished', '---' * 8)
         print(f'Total steps: {iteration}, Total time: {t_end - t_start:.2f} s')
-        return True
+
+        result = DynamicResult(
+            GC_list=self._GC_list,
+            GV_list=self._GV_list,
+            GA_list=self._GA_list,
+            time_list=self._time_list,
+            load_params=self.assembly.get_load_parameters(),
+            total_time=t_end - t_start
+        )
+        return result
 
     def get_lumped_mass_inv(self, GC: torch.Tensor) -> torch.Tensor:
         """

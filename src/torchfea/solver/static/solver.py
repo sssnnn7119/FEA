@@ -45,16 +45,16 @@ class StaticImplicitSolver(BaseSolver):
         self.__low_alpha_count = 0
 
 
-    def solve(self, GC0: torch.Tensor = None, need_jacobian: bool = False, *args, **kwargs) -> bool:
+    def solve(self, GC0: torch.Tensor = None, need_jacobian: bool = False, *args, **kwargs) -> StaticResult:
         """
-        Solves the finite element analysis problem.
+        Solves the finite element analysis problem and returns a StaticResult object.
 
         Args:
             GC0 (torch.Tensor, optional): Initial generalized coordinates. Defaults to an empty tensor.
             tol_error (float, optional): Tolerance error for convergence. Defaults to 1e-7.
 
         Returns:
-            bool: True if the solution converged, False otherwise.
+            StaticResult: The result object containing GC, jacobian (optional), and convergence status.
         """
         # initialize the RGC
         t0 = time.time()
@@ -62,29 +62,33 @@ class StaticImplicitSolver(BaseSolver):
         if GC0 is None:
             GC0 = self.assembly.GC
         with torch.no_grad():
-            result = self._solve_iteration(GC=GC0, tol_error=self.tol_error)
+            solve_output = self._solve_iteration(GC=GC0, tol_error=self.tol_error)
 
-        if type(result) == bool:
-            return result
-        
-        self.assembly.GC = result[0]
-        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(result[0]))
+        GC_final, total_time_iter, time_items, converged = solve_output
+        self.assembly.GC = GC_final
+        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(GC_final))
         t2 = time.time()
 
         # print the information
         print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
-        R = self.get_stiffness_matrix(GC_now=result[0])[0]
+        R = self.get_stiffness_matrix(GC_now=GC_final)[0]
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
         # build the result object
-        result = StaticResult(GC=result[0], load_params=self.assembly.get_load_parameters(), total_time=result[1], time_items=result[2])
+        fe_result = StaticResult(
+            GC=GC_final,
+            load_params=self.assembly.get_load_parameters(),
+            total_time=total_time_iter,
+            time_items=time_items,
+            converged=converged,
+        )
 
         if need_jacobian:
-            jacobian = self.get_jacobian(result=result)
-            result.jacobian = jacobian
+            jacobian = self.get_jacobian(result=fe_result)
+            fe_result.jacobian = jacobian
 
-        return result
+        return fe_result
    
     def get_jacobian(self, result: StaticResult, load_names: list[str] = None) -> torch.Tensor:
         """
@@ -781,7 +785,7 @@ class StaticImplicitSolver(BaseSolver):
 
             if self._iter_now > self.maximum_iteration:
                 print('maximum iteration reached')
-                return False
+                return GC, time.time() - t00, time_items, False
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
@@ -808,7 +812,7 @@ class StaticImplicitSolver(BaseSolver):
                     GC, dGC, R, energy[-1])
 
             if alpha==0 and R.abs().max() > tol_error:
-                return False
+                return GC, time.time() - t00, time_items, False
             if alpha==0:
                 break
 
@@ -821,7 +825,7 @@ class StaticImplicitSolver(BaseSolver):
                     low_alpha = 0
 
             if low_alpha > 10:
-                return False
+                return GC, time.time() - t00, time_items, False
 
             # update the GC
             GC = GCnew
@@ -877,7 +881,7 @@ class StaticImplicitSolver(BaseSolver):
         
         total_time = time.time() - t00
 
-        return GC, total_time, time_items
+        return GC, total_time, time_items, True
 
     def _solve_linear_equation(self,
                                K_indices: torch.Tensor,

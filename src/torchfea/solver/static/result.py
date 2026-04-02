@@ -18,12 +18,15 @@ class StaticResult(BaseResult):
     The result of a static finite element analysis (FEA) simulation.
     """
 
-    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], jacobian: dict[str, torch.Tensor] = None, total_time: float = 0.0, time_items: dict[str, list[float]] = None):
+    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], jacobian: dict[str, torch.Tensor] = None, total_time: float = 0.0, time_items: dict[str, list[float]] = None, converged: bool = True):
         super().__init__()
         self.GC = GC.detach().clone()
         """ 
         Global displacements tensor
         """
+
+        self.converged: bool = converged
+        """Indicates whether the static solver converged."""
 
         if jacobian is None:
             jacobian = {}

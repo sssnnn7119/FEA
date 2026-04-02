@@ -8,6 +8,7 @@ import time
 import torch
 from .. import _linear_solver
 from ..basesolver import BaseSolver
+from .result import DynamicResult
 
 class DynamicImplicitSolver(BaseSolver):
 
@@ -222,7 +223,16 @@ class DynamicImplicitSolver(BaseSolver):
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
-        return True 
+        result = DynamicResult(
+            GC_list=self._GC_list,
+            GV_list=self._GV_list,
+            GA_list=self._GA_list,
+            time_list=self._time_list,
+            load_params=self.assembly.get_load_parameters(),
+            total_time=t2 - t0
+        )
+
+        return result
 
     def get_next_velocity(self, GC_now: torch.Tensor, GC0: torch.Tensor, GV0: torch.Tensor, GA0: torch.Tensor, deltaT: float) -> tuple[torch.Tensor, torch.Tensor]:
         """
