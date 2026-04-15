@@ -485,7 +485,7 @@ class StaticImplicitSolver(BaseSolver):
             self.assembly.initialize()
 
             print("Computing Jacobian sensitivity for each step:")
-
+            print(f" -Step 0/{len(fe_results)} sensitivity computed.\r", end='')
             for idx, fe_result in enumerate(fe_results):
                 # 0. Set load parameters and prepare jacobian
                 self.assembly.set_load_parameters(fe_results[0].load_params)
@@ -616,7 +616,7 @@ class StaticImplicitSolver(BaseSolver):
 
                 fe_result.remove_stored_factorization()
 
-                print(f"Step {idx+1}/{len(fe_results)} sensitivity computed.\r", end='')
+                print(f" -Step {idx+1}/{len(fe_results)} sensitivity computed.\r", end='')
 
                 
             sensitivity = design_vars_grad.grad.clone().detach()
@@ -789,6 +789,7 @@ class StaticImplicitSolver(BaseSolver):
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
+            R = self.assembly.assemble_force(GC=GC)
             R, K_indices, K_values = self.get_stiffness_matrix(GC_now=GC)
 
             self._iter_now += 1

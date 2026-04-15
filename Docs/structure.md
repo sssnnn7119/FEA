@@ -4,10 +4,12 @@
 
 FEA是一个基于PyTorch的有限元分析框架，支持非线性材料、接触分析等高级功能。该框架采用面向对象的设计，具有清晰的层次结构和模块化的组织方式。
 
-## 整体架构（与当前仓库同步）
+## 整体架构
 
 ```
 torchfea/
+├── .gitignore
+├── .python-version
 ├── pyproject.toml              # 项目配置
 ├── readme.md                   # 项目简介
 ├── docs/                       # 文档
@@ -15,31 +17,30 @@ torchfea/
 │   ├── usage.md                # 使用说明
 │   └── elements/               # 单元文档
 ├── examples/                   # 示例与测试用例
-│   ├── vis.py                  # 可视化示例
 │   ├── contact_test/           # 接触分析示例
-│   ├── element_test/           # 单元测试
-│   ├── gradient_test/          # 梯度优化测试
-│   ├── instance_test/          # 实例测试
-│   ├── jacobian_test/          # 雅可比矩阵测试
+│   ├── element_test/           # 单元与表面测试
+│   ├── gradient_test/          # 梯度与优化测试
+│   ├── jacobian_test/          # 雅可比/灵敏度测试
 │   ├── kinetic_test/           # 动力学测试
-│   ├── pressure_test/          # 压力载荷测试
-│   └── shape_optimization/     # 形状优化示例
+│   ├── multiprocess_test/      # 多进程测试
+│   └── pressure_test/          # 压力加载测试
 └── src/
     └── torchfea/               # 核心包
-        ├── __init__.py         # 模块入口
+        ├── __init__.py         # 包入口
         ├── controller.py       # FEAController 主控制器
         ├── inp.py              # INP 文件解析器
-        ├── model/           # 装配模块（核心组织层）
+        ├── model/              # 装配与模型管理模块
         │   ├── assembly.py     # Assembly 装配与全局矩阵装配
+        │   ├── obj_base.py     # 共享对象基类
         │   ├── part.py         # Part/Instance 部件与实例
         │   ├── reference_points.py # 参考点
         │   ├── boundarys/      # 边界条件模块
         │   ├── constraints/    # 约束模块
         │   ├── elements/       # 单元模块
+        │   │   ├── base.py     # 单元基类
         │   │   ├── dimension3/ # 3D 单元实现
         │   │   └── materials/  # 材料模型
         │   └── loads/          # 载荷模块
-        ├── optimizer/          # 优化器模块
         └── solver/             # 求解器模块
             ├── basesolver.py   # 求解器基类
             ├── _linear_solver.py # 线性方程组求解
@@ -72,7 +73,7 @@ torchfea/
 
 #### Assembly (装配)
 
-- **文件位置**: `src/torchfea/assemble/assembly.py`
+- **文件位置**: `src/torchfea/model/assembly.py`
 - **功能**: 统一管理整个有限元模型的所有组件
 - **核心属性**:
   - `_parts`: 部件字典
@@ -89,28 +90,28 @@ torchfea/
 
 ##### 几何组件
 
-- **Part (部件)**: `src/torchfea/assemble/part.py`，定义几何部件
+- **Part (部件)**: `src/torchfea/model/part.py`，定义几何部件
 - **Instance (实例)**: 部件的实例化
-- **ReferencePoint (参考点)**: `src/torchfea/assemble/reference_points.py`
+- **ReferencePoint (参考点)**: `src/torchfea/model/reference_points.py`
 
-##### 单元模块 (`src/torchfea/assemble/elements/`)
+##### 单元模块 (`src/torchfea/model/elements/`)
 
-- **BaseElement**: `src/torchfea/assemble/elements/base.py`
-- **3D单元**: `src/torchfea/assemble/elements/dimension3/` (包含 brick.py, tetrahedral.py 等)
+- **BaseElement**: `src/torchfea/model/elements/base.py`
+- **3D单元**: `src/torchfea/model/elements/dimension3/` (包含 brick.py, tetrahedral.py 等)
   - `surfaces/`: 表面单元定义
-- **材料模块**: `src/torchfea/assemble/elements/materials/`
+- **材料模块**: `src/torchfea/model/elements/materials/`
 
-##### 载荷模块 (`src/torchfea/assemble/loads/`)
+##### 载荷模块 (`src/torchfea/model/loads/`)
 
-- **BaseLoad**: `src/torchfea/assemble/loads/base.py`
+- **BaseLoad**: `src/torchfea/model/loads/base.py`
 - **各类载荷**: `contact.py`, `pressure.py`, `concentrate_force.py` 等
 
-##### 约束与边界 (`src/torchfea/assemble/boundarys/` & `constraints/`)
+##### 约束与边界 (`src/torchfea/model/boundarys/` & `src/torchfea/model/constraints/`)
 
-- **Boundarys**: `src/torchfea/assemble/boundarys/`
+- **Boundarys**: `src/torchfea/model/boundarys/`
   - `boundary_condition.py`: 位移边界条件
   - `boundary_condition_rp.py`: 参考点边界条件
-- **Constraints**: `src/torchfea/assemble/constraints/`
+- **Constraints**: `src/torchfea/model/constraints/`
   - `couple.py`: 耦合约束
 
 ### 3. 求解器层 (Solver Layer)
@@ -344,7 +345,7 @@ controller.solve()
 - `examples/kinetic_test/`：显式/隐式动力学时间积分与能量检查
 - `examples/contact_test/`：接触算例与基准对比
 - `examples/pressure_test/`：表面压力加载验证
-- `examples/gradient_test/` 与 `examples/shape_optimization/`：梯度与优化流程
+- `examples/gradient_test/`：梯度与优化流程
 
 ---
 
