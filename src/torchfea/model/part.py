@@ -484,3 +484,12 @@ class Instance(BaseObj):
 
         mesh = pv.PolyData(nodes_transformed, np.hstack([ np.full((triangles.shape[0], 1), 3), triangles ]))
         return mesh
+    
+    def show(self, RGC: list[torch.Tensor] = None, surf_name: str = None):
+        mesh = self.get_mesh(RGC=RGC, surf_name=surf_name)
+        if mesh.n_points == 0:
+            print("No surface to show.")
+            return
+        plotter = pv.Plotter()
+        plotter.add_mesh(mesh, color='lightblue', show_edges=True)
+        plotter.show()

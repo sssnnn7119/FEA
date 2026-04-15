@@ -93,19 +93,20 @@ class Assembly:
             meshes[ins_name] = mesh
         return meshes
 
-    def show_ins(self, ins_name: str, GC: torch.Tensor = None):
+    def show_ins(self, ins_name: str, GC: torch.Tensor = None, surf_name: str = None):
         """
         Visualize the specified instance.
 
         Args:
             ins_name (str): The name of the instance to visualize.
             GC (torch.Tensor, optional): The generalized coordinates to use for visualization. Defaults to None.
+            surf_name (str, optional): The name of the surface to visualize. Defaults to None.
         """
         if GC is not None:
             RGC = self._GC2RGC(GC)
         else:
             RGC = None
-        mesh = self._instances[ins_name].get_mesh(RGC=RGC)
+        mesh = self._instances[ins_name].get_mesh(RGC=RGC, surf_name=surf_name)
         pv.global_theme.allow_empty_mesh = True
         plotter = pv.Plotter()
         plotter.add_mesh(mesh, show_edges=True, opacity=1.0, label=ins_name)
