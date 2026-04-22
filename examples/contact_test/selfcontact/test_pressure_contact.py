@@ -86,5 +86,14 @@ faces = np.column_stack([np.full(len(extern_surf), 3), extern_surf])
 mesh = pv.PolyData(deformed_surface, faces)
 mesh['displacement'] = Unorm
 plotter = pv.Plotter()
-plotter.add_mesh(mesh, scalars='displacement', show_edges=True, edge_color='black', line_width=0.5, opacity=1.0)
+plotter.enable_parallel_projection()
+plotter.add_mesh(
+    mesh,
+    scalars='displacement',
+    cmap='jet',
+    show_edges=True,
+    edge_color='black',
+    line_width=0.5,
+    opacity=1.0,
+)
 plotter.show()

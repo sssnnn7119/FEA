@@ -100,19 +100,23 @@ torchfea/
 - **3D单元**: `src/torchfea/model/elements/dimension3/` (包含 brick.py, tetrahedral.py 等)
   - `surfaces/`: 表面单元定义
 - **材料模块**: `src/torchfea/model/elements/materials/`
+- **职责定位**: 与载荷模块在装配层地位对等，二者都向系统提供势能项，最终共同组成总势能表达式。
 
 ##### 载荷模块 (`src/torchfea/model/loads/`)
 
 - **BaseLoad**: `src/torchfea/model/loads/base.py`
 - **各类载荷**: `contact.py`, `pressure.py`, `concentrate_force.py` 等
+- **职责定位**: 与单元模块功能一致，核心是提供势能贡献及其对应的力/切线信息，用于总势能与总残余装配。
 
 ##### 约束与边界 (`src/torchfea/model/boundarys/` & `src/torchfea/model/constraints/`)
 
 - **Boundarys**: `src/torchfea/model/boundarys/`
   - `boundary_condition.py`: 位移边界条件
   - `boundary_condition_rp.py`: 参考点边界条件
+  - **作用**: 仅负责删去（屏蔽）自由度，不执行自由度融合。
 - **Constraints**: `src/torchfea/model/constraints/`
   - `couple.py`: 耦合约束
+  - **作用**: 负责自由度融合（将多个自由度合并/消元），并将对应刚度贡献融合到保留自由度。
 
 ### 3. 求解器层 (Solver Layer)
 
@@ -169,6 +173,10 @@ FEAController.initialize() → Assembly.initialize() → 组件初始化
          Solver.initialize() → 动力学需 assembly.initialize_dynamic()
          ↓
 FEAController.solve() → Solver.solve()
+  ├─ 计算顺序（每次装配）
+  │  1) 先计算单元与载荷贡献（共同构成总势能、残余与切线基础项）
+  │  2) 再处理约束融合（自由度合并，刚度贡献映射到保留自由度）
+  │  3) 最后施加边界条件（仅删除/屏蔽被约束自由度）
   ├─ 隐式：反复装配 R,K 与质量（动力隐式）→ 线性求解 → 线搜索/收敛
   └─ 显式：质量向量/对角线 M → 时间推进（中心差分）→ 状态存储
 ```
@@ -190,7 +198,7 @@ FEAController.solve() → Solver.solve()
 - **载荷 (Loads)**: 根据载荷类型申请相应的RGC空间
 
   - 基础载荷：继承自 `BaseLoad`，可申请额外的内部变量空间
-  - 接触载荷：可能需要额外的拉格朗日乘子空间
+  
 - **约束 (Constraints)**: 根据约束类型申请RGC空间
 
   - 边界条件：不申请额外空间，而是修改现有RGC的自由度状态

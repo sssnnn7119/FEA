@@ -40,20 +40,17 @@ rp = fe.assembly.add_reference_point(torchfea.ReferencePoint([0, 0, 80]))
 
 fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
 
-mate: torchfea.materials.NeoHookean = fe.assembly.get_part('final_model').elems['element-0'].materials
-# mate.kappa = 12.
-# mate.kappa = 0.1
+fe.assembly.add_load(torchfea.loads.Penalty_DoF(s=2, k=1e4, target=20.0, obj_name=rp), name='penalty-1')
 
 t1 = time.time()
 
 result = fe.solve(tol_error=0.01)
-result.save('temp.npz')
-result = torchfea.solver.StaticResult.load('temp.npz')
-os.remove('temp.npz')
+# result.save('temp.npz')
+# result = torchfea.solver.StaticResult.load('temp.npz')
+# os.remove('temp.npz')
 
-print(fe.solver.GC)
 print('ok')
-
+print(result.GC[-6:])
 
 # extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
 extern_surf = fe.assembly.get_instance('final_model').surfaces.get_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
@@ -62,7 +59,7 @@ extern_surf = fe.assembly.get_instance('final_model').surfaces.get_elements('sur
 import pyvista as pv
 
 # Get the deformed surface coordinates
-U = fe.assembly._GC2RGC(fe.solver.GC)[0].cpu().numpy()
+U = fe.assembly._GC2RGC(result.GC)[0].cpu().numpy()
 undeformed_surface = fem.part['final_model'].nodes[:,1:]
 deformed_surface = undeformed_surface + U
 
