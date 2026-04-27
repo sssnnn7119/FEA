@@ -4,6 +4,8 @@ from .base import BaseLoad
 from ..elements import BaseSurface
 class Pressure(BaseLoad):
 
+    _serialized_attributes = ['surface_set', 'instance_name', '_parameters']
+
     def __init__(self, instance_name: str, surface_set: str, pressure: float) -> None:
         """
         initialize the pressure load on the surface element

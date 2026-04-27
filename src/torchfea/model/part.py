@@ -355,6 +355,8 @@ class Part(Serializable):
     # endregion
 
 class Instance(BaseObj):
+
+    _serialized_attributes = ['part_name', '_translation', '_rotation', 'external_surface']
     def __init__(self, part_name: str, translation: torch.Tensor = None, rotation: torch.Tensor = None, external_surface: str = '') -> None:
         """
         Create an instance of a part.

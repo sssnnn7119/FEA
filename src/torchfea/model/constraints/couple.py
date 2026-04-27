@@ -5,6 +5,8 @@ from .base import BaseConstraint
 
 class Couple(BaseConstraint):
 
+    _serialized_attributes = ['instance_name', 'set_nodes_name', 'rp_name']
+
     def __init__(self, instance_name: str, set_nodes_name: str, rp_name: str) -> None:
         super().__init__()
         self.instance_name = instance_name

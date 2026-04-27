@@ -42,6 +42,8 @@ class BaseObj(Serializable):
         """Get the list of attributes to be serialized."""
         serialized_attrs = super().serialized_attributes
         serialized_attrs = [attr for attr in serialized_attrs if attr != '_assembly']
+        serialized_attrs += ['_RGC_requirements']
+
         return serialized_attrs
 
     def set_RGC_index(self, index: int) -> None:

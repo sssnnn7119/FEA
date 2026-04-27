@@ -7,6 +7,9 @@ from .base import BaseLoad
 from ..elements import BaseSurface
 
 class ContactBase(BaseLoad):
+
+
+
     def __init__(self,
                  penalty_distance_f: float = 1e-5,
                  penalty_factor_f: float = 40.0,
@@ -14,7 +17,7 @@ class ContactBase(BaseLoad):
                  penalty_end_g: float = -0.85,
                  penalty_threshold_h: float = 1.5,
                  penalty_ratio_h: float = 0.9,
-                 mesh_size: float = 1.0, **kwargs):
+                 mesh_size: float = 1.0):
         """
         Initialize the base contact load with common parameters.
 
@@ -153,10 +156,24 @@ class ContactSelf(ContactBase):
     Class representing self-contact loads in the finite element model.
     """
 
+    _serialized_attributes = ['surface_name', 
+                              'instance_name', 
+                              '_ignore_min_normal', 
+                              '_ignore_max_normal', 
+                              '_initial_detact_ratio', 
+                              '_parameters']
+
     def __init__(self, instance_name: str, surface_name: str,
                  ignore_min_normal: float = -0.5,
                  ignore_max_normal: float = 1.5, 
-                 initial_detact_ratio: float = 1.5, **kwargs):
+                 initial_detact_ratio: float = 1.5, 
+                 penalty_distance_f: float = 1e-5,
+                 penalty_factor_f: float = 40.0,
+                 penalty_start_g: float = -0.8,
+                 penalty_end_g: float = -0.85,
+                 penalty_threshold_h: float = 1.5,
+                 penalty_ratio_h: float = 0.9,
+                 mesh_size: float = 1.0):
         """
         Initialize the self-contact load.
 
@@ -165,9 +182,15 @@ class ContactSelf(ContactBase):
             **kwargs: Additional parameters passed to ContactBase.
         """
 
-        super().__init__(**kwargs)
+        super().__init__(
+            penalty_distance_f=penalty_distance_f,
+            penalty_factor_f=penalty_factor_f,
+            penalty_start_g=penalty_start_g,
+            penalty_end_g=penalty_end_g,
+            penalty_threshold_h=penalty_threshold_h,
+            penalty_ratio_h=penalty_ratio_h,
+            mesh_size=mesh_size)
 
-        
         self._ignore_min_normal = ignore_min_normal
         """The minimum initial normal distance to ignore for contact."""
         self._ignore_max_normal = ignore_max_normal
@@ -665,14 +688,29 @@ class Contact(ContactBase):
         **kwargs: Additional parameters passed to ContactBase.
     """
 
+    _serialized_attributes = ['instance_name1', 'instance_name2', 'surface_name1', 'surface_name2', '_parameters', 'mesh_size']
+
     def __init__(self,
             instance_name1: str,
             instance_name2: str,
             surface_name1: str,
             surface_name2: str,
-            **kwargs):
+            penalty_distance_f: float = 1e-5,
+            penalty_factor_f: float = 40.0,
+            penalty_start_g: float = -0.8,
+            penalty_end_g: float = -0.85,
+            penalty_threshold_h: float = 1.5,
+            penalty_ratio_h: float = 0.9,
+            mesh_size: float = 1.0):
         
-        super().__init__(**kwargs)
+        super().__init__(
+            penalty_distance_f=penalty_distance_f,
+            penalty_factor_f=penalty_factor_f,
+            penalty_start_g=penalty_start_g,
+            penalty_end_g=penalty_end_g,
+            penalty_threshold_h=penalty_threshold_h,
+            penalty_ratio_h=penalty_ratio_h,
+            mesh_size=mesh_size)
 
         self.surface_name1 = surface_name1
         """The name of the first surface to apply the load on."""

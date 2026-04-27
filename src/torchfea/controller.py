@@ -107,7 +107,7 @@ class FEAController(Serializable):
             None
         """
         serialized_data = self._serialize()
-        np.savez_compressed(path, serialized_data)
+        np.savez_compressed(path, data = serialized_data)
 
 def load_model(path: str):
     """
@@ -120,5 +120,5 @@ def load_model(path: str):
         FEAController: The loaded finite element model.
     """
     loaded = np.load(path, allow_pickle=True)
-    serialized_data = loaded['arr_0']
+    serialized_data = loaded['data']
     return FEAController._deserialize(serialized_data)

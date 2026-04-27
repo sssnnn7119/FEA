@@ -18,6 +18,8 @@ class Penalty_DoF(BaseLoad):
         obj_type: one of {'auto', 'instance', 'rp', 'load', 'constraint'}
     """
 
+    _serialized_attributes = ['obj_name', 's', 'target', 'k', '_parameters', 'obj_type']
+
     def __init__(
         self,
         obj_name: str,

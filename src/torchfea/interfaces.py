@@ -59,11 +59,20 @@ class Serializable():
 
         serialized_data = {}
 
-        for attr in self.serialized_attributes:
-            value = getattr(self, attr)
-            sub_serialized = self._serialize_obj(value)
-            if sub_serialized:
-                serialized_data[attr] = sub_serialized
+        all_attributes = [attr for attr in self.__dict__.keys() if not attr.startswith('__')]
+        selected_attributes = self.serialized_attributes
+        
+        selected_attributes = list(set(selected_attributes))
+
+        for attr in all_attributes:
+            if attr in selected_attributes:
+                value = getattr(self, attr)
+                sub_serialized = self._serialize_obj(value)
+                if sub_serialized:
+                    serialized_data[attr] = sub_serialized
+            else:
+                serialized_data[attr] = (None, 'NoneType')
+
 
         return (serialized_data, type(self).__name__)
     
@@ -88,6 +97,8 @@ class Serializable():
             return {key: Serializable._deserialize_obj(val) for key, val in value.items()}
         elif type_name == 'ndarray':
             return value
+        elif type_name == 'NoneType':
+            return None
         else:
             raise ValueError(f"Unknown type name '{type_name}' during deserialization.")
     
@@ -108,3 +119,5 @@ class Serializable():
             deserialized_value = cls._deserialize_obj(value)
             setattr(obj, attr, deserialized_value)
         return obj
+    
+    

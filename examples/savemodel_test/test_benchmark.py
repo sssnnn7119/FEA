@@ -1,5 +1,6 @@
 
 import os
+import tempfile
 import time
 import sys
 
@@ -45,8 +46,10 @@ fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_mode
 t1 = time.time()
 
 fe.initialize()
-fe.save_model('Z:/temp/fea_model.npz')
-fe_new = torchfea.load_model('Z:/temp/fea_model.npz')
+with tempfile.TemporaryDirectory(prefix='torchfea_cache_') as temp_dir:
+    dir_path = os.path.join(temp_dir, 'model_cache.npz')
+    fe.save_model(dir_path)
+    fe_new = torchfea.load_model(dir_path)
 
 result = fe_new.solve(tol_error=0.01)
 # result.save('temp.npz')

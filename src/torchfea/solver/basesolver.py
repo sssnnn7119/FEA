@@ -23,6 +23,12 @@ class BaseSolver(Serializable):
         self.assembly: Assembly = None
         """ The assembly of the finite element model. """
 
+    @property
+    def serialized_attributes(self):
+        """Get the list of attributes to be serialized."""
+        serialized_attrs = super().serialized_attributes
+        serialized_attrs = [attr for attr in serialized_attrs if attr != 'assembly']
+        return serialized_attrs
 
     def initialize(self, assembly: Assembly, *args, **kwargs):
         """
