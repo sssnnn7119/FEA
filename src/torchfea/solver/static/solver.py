@@ -277,7 +277,7 @@ class StaticImplicitSolver(BaseSolver):
         self,
         fe_result: StaticResult,
         design_vars: torch.Tensor,
-        load_names: Optional[list[str]],
+        load_names: list[str],
         apply_func: Callable[[Assembly, torch.Tensor], None] ,
         compute_objective_func: Callable[[StaticResult, Assembly], torch.Tensor],
     ) -> torch.Tensor:
@@ -291,7 +291,7 @@ class StaticImplicitSolver(BaseSolver):
             fe_result (StaticResult): The result object containing the current state and factorized stiffness matrix.
             design_vars (torch.Tensor): A tensor representing the design variables.
                 It must be the source of gradients for `apply_func`.
-            load_names (list[str], optional): The names of the loads for which to compute the Jacobian sensitivity. If None, all loads are considered.
+            load_names (list[str]): The names of the loads for which to compute the Jacobian sensitivity.
             apply_func (Callable[[Assembly, torch.Tensor, None]): 
                 A callback to apply design variables to the assembly.
                 - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
@@ -445,7 +445,7 @@ class StaticImplicitSolver(BaseSolver):
         self,
         fe_results: list[StaticResult],
         design_vars: torch.Tensor,
-        load_names: Optional[list[str]],
+        load_names: list[str],
         apply_func: Callable[[Assembly, torch.Tensor], None] ,
         compute_objective_funcs: Callable[[list[StaticResult], Assembly], torch.Tensor],
     ) -> torch.Tensor:
@@ -459,7 +459,7 @@ class StaticImplicitSolver(BaseSolver):
             fe_results (list[StaticResult]): A list of result objects containing the current state and factorized stiffness matrices.
             design_vars (torch.Tensor): A tensor representing the design variables.
                 It must be the source of gradients for `apply_func`.
-            load_names (list[str], optional): The names of the loads for which to compute the Jacobian sensitivity. If None, all loads are considered.
+            load_names (list[str]): The names of the loads for which to compute the Jacobian sensitivity.
             apply_func (Callable[[Assembly, torch.Tensor, None]): 
                 A callback to apply design variables to the assembly.
                 - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`

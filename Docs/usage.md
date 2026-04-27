@@ -180,18 +180,37 @@ T_hist  = result.time_list
 
 ## 四、导出与可视化
 
-- 导出 numpy 文件（见 kinetic 测试）：
+### 1) Controller 模型持久化（save/load）
 
-  ```python
-  import numpy as np
-  out_dir = 'Z:/temp/'  # 自行修改为本地目录
-  np.save(out_dir + '/explicitGC.npy', np.array([x.tolist() for x in controller.solver._GC_list], dtype=np.float32))
-  np.save(out_dir + '/explicitGV.npy', np.array([x.tolist() for x in controller.solver._GV_list], dtype=np.float32))
-  np.save(out_dir + '/explicitGA.npy', np.array([x.tolist() for x in controller.solver._GA_list], dtype=np.float32))
-  ```
+当你希望保存“完整模型状态”（assembly、loads、constraints、solver 配置等）并在之后恢复，而不是只保存一次求解结果时，使用 controller 级别持久化。
+
+当前接口：
+
+- 保存：`controller.save_model(path)`
+- 加载：`torchfea.load_model(path)`
+
+示例：
+
+```python
+import torchfea
+
+# 假设 controller 已构建并完成载荷/约束/求解器设置
+controller.save_model('model_state.npz')
+
+# 在同进程或后续脚本中恢复
+controller2 = torchfea.load_model('model_state.npz')
+
+# 恢复后可直接继续求解
+result = controller2.solve(tol_error=1e-6)
+```
+
+说明：
+
+- `controller.save_model/load_model` 保存的是“模型对象状态”。
+- `result.save/load` 保存的是“求解结果”（如 `StaticResult` / `DynamicResult`）。
+- 两者可组合使用：先恢复模型，再基于新工况求解并保存结果。
 - 可视化（PyVista，见多处 tests）：
-
-  ```python
+- ```python
   import pyvista as pv
   import numpy as np
 
@@ -211,23 +230,3 @@ T_hist  = result.time_list
   plotter.add_mesh(mesh, scalars='displacement')
   plotter.show()
   ```
-
-## 五、常见技巧与排错
-
-- 默认类型与设备：tests 多以 `float64`、有时 GPU 运行；如遇显存不足可退回 CPU 或降低模型规模。
-- 显式不稳定/发散：
-  - 减小临界时间步长（见 solver 内部估计）；
-  - 采用集总质量（已内置）与轻微数值阻尼（可在自定义中加入）。
-- 隐式难收敛：
-  - 检查边界与接触设置是否矛盾；
-  - 关注线搜索输出与最大步长限制（`_maximum_step_length`）。
-- 约束与集合：`index_nodes`/`surface_set` 均来自 INP 内的集合；请确保 INP 定义与代码一致（常见实例名：`final_model`）。
-
-## 六、更多示例指引
-
-- 静力 + 自接触：`tests/gradient_test/test_grad.py`
-- 双体接触：`tests/contact_test/contact/test_benchmark.py`
-- 动力学（隐式/显式）：`tests/kinetic_test/`
-- 单元与表面相关：`tests/element_test/`
-- 压力加载：`tests/pressure_test/`
-- 优化/灵敏度：`tests/shape_optimization/`、`tests/gradient_test/`

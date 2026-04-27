@@ -47,13 +47,14 @@ def apply_design_vars(assembly: torchfea.Assembly, design_vars: torch.Tensor) ->
 
 ### 3. 定义目标函数 (`compute_objective_func`)
 
-接下来，定义一个回调函数用来计算优化目标。函数的参数是节点的广义坐标（`GC`，包含了位移信息）以及当前的有限元装配体（`assembly`）。该函数应返回一个标量 `Tensor`。
+接下来，定义一个回调函数用来计算优化目标。当前接口中，目标函数接收 `StaticResult` 与当前装配体 `assembly`，并返回一个标量 `Tensor`。
 例如，目标函数是针对某个特定自由度（如末端参考点位移）的最小化：
 
 ```python
-def compute_objective(GC: torch.Tensor, assembly: torchfea.Assembly) -> torch.Tensor:
+def compute_objective(fe_result: torchfea.solver.StaticResult,
+                      assembly: torchfea.Assembly) -> torch.Tensor:
     # 假设需要最小化索引为 -2 的自由度的值
-    obj = GC[-2]
+    obj = fe_result.GC[-2]
     return obj
 ```
 
@@ -96,46 +97,74 @@ print('敏感度梯度:', grad_sensi)
 
 ### 用法举例
 
-与基础的伴随敏度分析类似，使用雅可比敏度分析同样需要准备好收敛的静力学解 `fe_result` 和设计变量。主要的区别在于：你需要指定关注哪些影响雅可比的载荷参数，且目标函数的参数输入有所不同。
+与基础的伴随敏度分析类似，使用雅可比敏度分析同样需要准备好收敛的静力学解 `fe_result` 和设计变量。主要区别在于：
+
+1. 你需要指定关注哪些载荷参数（`load_names`）。
+2. 当前接口中，目标函数接收 `StaticResult`（单工况）或 `list[StaticResult]`（多工况）。
 
 #### 1. 定义受雅可比影响的目标函数
 
-在使用该功能时，`compute_objective_func` 除了接受全量自由度张量 `GC` (对应 $u$) 和 `assembly` 外，还会接受 `jacobian` $\frac{\partial u_i}{\partial p_n}$ 张量，以及 `other_args`。
+单工况（`get_jacobian_sensitivity`）目标函数签名如下：
 
 ```python
-def compute_jacobian_objective(
-    GC: torch.Tensor, 
-    jacobian: torch.Tensor, 
-    assembly: torchfea.Assembly,
-    other_args: dict = None
-) -> torch.Tensor:
-    # 例如：希望优化模型，使得某个特定自由度（索引-2）对外界第一个载荷参数变化最不敏感（鲁棒性最强）
-    # jacobian 是列拼合后的总雅可比矩阵张量，shape: [num_dofs, num_load_params]
-    obj = (jacobian[-2, 0] ** 2)
-    return obj
+def compute_objective_jacobian(fe_result: torchfea.solver.StaticResult,
+                               assembly: torchfea.Assembly) -> torch.Tensor:
+    # fe_result.jacobian 是 dict[str, torch.Tensor]
+    # 例如关注 pressure-1 对某个自由度的雅可比
+    return fe_result.jacobian['pressure-1'][-2, 0] ** 2
+```
+
+多工况（`get_jacobian_sensitivity_multistep`）目标函数签名如下：
+
+```python
+def compute_objective_jacobian(fe_results: list[torchfea.solver.StaticResult],
+                        assembly: torchfea.Assembly,
+                        ) -> torch.Tensor:
+    # 示例: 两个工况目标加权求和
+    term_0 = fe_results[0].jacobian['pressure-1'][-2, 0] * fe_results[0].GC[-2]
+    term_1 = fe_results[1].jacobian['pressure-1'][-2, 0] * fe_results[1].GC[-2]
+    return term_0 + term_1
 ```
 
 #### 2. 调用求解器推导雅可比敏度
 
 提供需要计算偏导的载荷名称列表（`load_names`），并传入目标函数，会自动推导目标函数对设计变量的偏导数：
 
-```python
-# 指定需要求雅可比相关的载荷名称，例如面载荷 'pressure_1'
-focus_loads = ['pressure_1']
+单工况调用：
 
-# 调用雅可比敏度分析
-jacobian_outputs, jacobian_sensi = fe.solver.get_jacobian_sensitivity(
+```python
+focus_loads = ['pressure-1', 'pressure-2']
+
+grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     fe_result=feresult,
-    design_vars=initial_design_vars,
+    design_vars=part.nodes.reshape(-1),
     load_names=focus_loads,
     apply_func=apply_design_vars,
-    compute_objective_func=compute_jacobian_objective,
-    other_args=None  # 可附加任何其它 tensor 传给目标函数
+    compute_objective_func=compute_objective_jacobian,
 )
 
-print('计算获得的各个载荷雅可比字典:', jacobian_outputs)
-print('目标函数的雅可比设计敏感度梯度:', jacobian_sensi)
+print('单工况雅可比灵敏度:', grad_sensi_jacobian)
 ```
+
+多工况调用：
+
+```python
+# 指定需要求雅可比相关的载荷名称，例如面载荷 'pressure_1' 和 'pressure_2'
+focus_loads = ['pressure_1', 'pressure_2']
+
+# 调用雅可比敏度分析
+grad_sensi_jacobian_batch = solver.get_jacobian_sensitivity_multistep(
+    fe_results=[feresult1, feresult2],
+    design_vars=part.nodes.reshape(-1),
+    load_names=focus_loads,
+    apply_func=apply_design_vars,
+    compute_objective_funcs=compute_objective_jacobian,
+    )
+
+print('计算获得最终的灵敏度:', grad_sensi_jacobian_batch)
+```
+
+注意: 当前 `get_jacobian_sensitivity` 与 `get_jacobian_sensitivity_multistep` 都返回一个 `torch.Tensor`（即最终设计灵敏度）。
 
 --
 
@@ -143,16 +172,16 @@ print('目标函数的雅可比设计敏感度梯度:', jacobian_sensi)
 
 ### 常用符号表
 
-| 符号 | 物理及数学意义 |
-| :---: | :--- |
-| $L$ | 优化目标函数 (Objective function) |
-| $u_i$ | 节点的广义自由度或系统位移 (Generalized DoFs) |
-| $b_m$ | 用于优化的设计变量 (Design variables) |
-| $p_n$ | 外部特定的系统参量，如载荷大小 (External parameters) |
-| $R_i$ | 系统残余力 (Residual force, Internal force - External force) |
-| $K_{ik}$ | 对称系统的切线刚度矩阵 (Tangent stiffness matrix) |
-| $J_{in}$ | 系统位移对待定参数的雅可比矩阵响应 (Jacobian matrix) |
-| $\lambda_i$ | 计算伴随方程引入的一阶伴随变量 (Primary adjoint variables) |
+|                符号                | 物理及数学意义                                                     |
+| :--------------------------------: | :----------------------------------------------------------------- |
+|               $L$               | 优化目标函数 (Objective function)                                  |
+|              $u_i$              | 节点的广义自由度或系统位移 (Generalized DoFs)                      |
+|              $b_m$              | 用于优化的设计变量 (Design variables)                              |
+|              $p_n$              | 外部特定的系统参量，如载荷大小 (External parameters)               |
+|              $R_i$              | 系统残余力 (Residual force, Internal force - External force)       |
+|             $K_{ik}$             | 对称系统的切线刚度矩阵 (Tangent stiffness matrix)                  |
+|             $J_{in}$             | 系统位移对待定参数的雅可比矩阵响应 (Jacobian matrix)               |
+|           $\lambda_i$           | 计算伴随方程引入的一阶伴随变量 (Primary adjoint variables)         |
 | $\lambda_{in}^*, \lambda_i^{**}$ | 计算雅可比伴随方程引入的二次伴随变量 (Secondary adjoint variables) |
 
 ### 1. 位移场灵敏度推导
@@ -242,7 +271,7 @@ $$
 观察上述等式右侧的系数，括号内的物理意义分别代表对应参数关于 $p_n$ 的全微分。结合材料线弹性或严格切线刚度特性 $\frac{\partial K_{ji}}{\partial u_k} = \frac{\partial K_{jk}}{\partial u_i}$，我们引入全微分算子 $\frac{\mathbf{d}}{\mathbf{d} p_n}$ 进行聚合：
 
 $$
-K_{ji} \frac{\mathrm{d} J_{in}}{\mathrm{d} b_m} = - \frac{\mathbf{d} K_{jk}}{\mathbf{d} p_n} \frac{\mathrm{d} u_k}{\mathrm{d} b_m} - \frac{\partial}{\partial b_m}\left( \frac{\mathbf{d} R_j}{\mathbf{d} p_n} \right) 
+K_{ji} \frac{\mathrm{d} J_{in}}{\mathrm{d} b_m} = - \frac{\mathbf{d} K_{jk}}{\mathbf{d} p_n} \frac{\mathrm{d} u_k}{\mathrm{d} b_m} - \frac{\partial}{\partial b_m}\left( \frac{\mathbf{d} R_j}{\mathbf{d} p_n} \right)
 $$
 
 回忆第一节中的位移场灵敏度基础结论 $\frac{\mathrm{d} u_k}{\mathrm{d} b_m} = - K_{kr}^{-1} \frac{\partial R_r}{\partial b_m}$。将其代入上式，并同时在方程两侧左乘逆刚度矩阵 $K^{-1}$ 进行指标置换转化，即得雅可比全导数的显式代数表达式：
@@ -260,11 +289,12 @@ $$
 为了避免显式计算和存储极度庞大的 $\mathbf{d} K_{rs}/\mathbf{d} p_n$ 项与雅可比偏微分耦合张量，在代码中 `torchfea` 巧妙运用了高阶伴随方法（Secondary Adjoint Method），只需要执行**两次**额外的线性方程组顺次求解，即可计算上式所描述的总灵敏度修正项：
 
 1. **一阶伴随方程求解**：引入雅可比一阶伴随变量 $\lambda_{rn}^*$，通过求解等价线性系统得到：
+
    $$
    K_{rj} \lambda_{rn}^* = - \frac{\partial L}{\partial J_{jn}}
    $$
-
 2. **二阶伴随方程求解**：将得到的一阶伴随变量 $\lambda_{rn}^*$ 继续应用于刚度矩阵偏导投影，引入二阶伴随变量 $\lambda_i^{**}$，其对应的线性系统为：
+
    $$
    K_{is} \lambda_i^{**} = \frac{\mathbf{d} K_{rs}}{\mathbf{d} p_n} \lambda_{rn}^*
    $$
