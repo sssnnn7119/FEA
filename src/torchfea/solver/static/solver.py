@@ -196,8 +196,7 @@ class StaticImplicitSolver(BaseSolver):
         fe_result: StaticResult,
         design_vars: torch.Tensor,
         apply_func: Callable[[Assembly, torch.Tensor], None],
-        compute_objective_func: Callable[[torch.Tensor, Assembly, dict[str, torch.Tensor]], torch.Tensor],
-        other_args: Optional[dict[str, torch.Tensor]] = None
+        compute_objective_func: Callable[[StaticResult, Assembly], torch.Tensor]
     ) -> torch.Tensor:
         """
         Core functional implementation of the adjoint sensitivity analysis.
@@ -216,12 +215,11 @@ class StaticImplicitSolver(BaseSolver):
                 - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
                 - Behavior: Modify `assembly` in-place using `design_vars`. Operations must be traceable
                 by Autograd (e.g., `part.nodes = original_nodes + design_vars.reshape_as(part.nodes)`).
-            compute_objective_func (Callable[[torch.Tensor, Assembly, dict[str, torch.Tensor]], torch.Tensor]): 
+            compute_objective_func (Callable[[StaticResult, Assembly], torch.Tensor]): 
                 A callback to compute the objective scalar.
-                - Signature: `def compute_objective_func(GC: torch.Tensor, assembly: Assembly, other_args: dict[str, torch.Tensor]) -> torch.Tensor`
-                - Args: `GC` is the displacement vector (detached from physics but tracking gradient).
+                - Signature: `def compute_objective_func(fe_result: StaticResult, assembly: Assembly) -> torch.Tensor`
+                - Args: `fe_result` contains the necessary solution data.
                 - Returns: A scalar tensor representing the objective value (e.g., compliance, stress).
-            other_args (dict[str, torch.Tensor], optional): Additional arguments for the objective function.
 
         Returns:
             torch.Tensor: The gradient of the objective with respect to `design_vars`.
@@ -238,16 +236,14 @@ class StaticImplicitSolver(BaseSolver):
             # 2. Prepare Autograd graph
             design_vars_grad = design_vars.clone().detach().requires_grad_(True)
             GC_grad = fe_result.GC.clone().detach().requires_grad_(True)
+            fe_result.GC = GC_grad  # Use GC_grad for the assembly to track gradients through R and K
 
             # 3. Apply Design Variables
             apply_func(self.assembly, design_vars_grad)
             self.assembly.initialize()
 
             # 4. Compute Objective
-            if other_args is None:
-                objective = compute_objective_func(GC_grad, self.assembly)
-            else:
-                objective = compute_objective_func(GC_grad, self.assembly, other_args)
+            objective = compute_objective_func(fe_result, self.assembly)
 
             # 5. Backward Pass 1 (d_Obj / d_Vars and d_Obj / d_U)
             objective.backward(retain_graph=True)
@@ -271,6 +267,8 @@ class StaticImplicitSolver(BaseSolver):
         finally:
             # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
             self._detach_recursive(self.assembly)
+            self._detach_recursive(fe_result)
+            fe_result.remove_stored_factorization()
 
 
         return design_vars_grad.grad.clone().detach()
@@ -281,8 +279,7 @@ class StaticImplicitSolver(BaseSolver):
         design_vars: torch.Tensor,
         load_names: Optional[list[str]],
         apply_func: Callable[[Assembly, torch.Tensor], None] ,
-        compute_objective_func: Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str]], torch.Tensor],
-        other_args: Optional[dict[str]] = None
+        compute_objective_func: Callable[[StaticResult, Assembly], torch.Tensor],
     ) -> torch.Tensor:
         """
         Compute the Jacobian sensitivity (dR/dVars) for the static problem.
@@ -300,12 +297,11 @@ class StaticImplicitSolver(BaseSolver):
                 - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
                 - Behavior: Modify `assembly` in-place using `design_vars`. Operations must be traceable
                 by Autograd (e.g., `part.nodes = original_nodes + design_vars.reshape_as(part.nodes)`).
-            compute_objective_func (Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str, torch.Tensor]], torch.Tensor]): 
+            compute_objective_func (Callable[[StaticResult, Assembly], torch.Tensor]): 
                 A callback to compute the objective scalar.
-                - Signature: `def compute_objective_func(GC: torch.Tensor, jacobian: dict[str, torch.Tensor], assembly: Assembly, other_args: Optional[dict[str]]) -> torch.Tensor`
-                - Args: `GC` is the displacement vector (detached from physics but tracking gradient).
+                - Signature: `def compute_objective_func(fe_result: StaticResult, assembly: Assembly) -> torch.Tensor`
+                - Args: `fe_result` contains the necessary solution data.
                 - Returns: A scalar tensor representing the objective value (e.g., compliance, stress).
-            other_args (dict[str], optional): Additional arguments for the objective function.
         Returns:
             torch.Tensor: The sensitivity of the objective with respect to design variables.
                 Shape matches `design_vars`.
@@ -334,6 +330,8 @@ class StaticImplicitSolver(BaseSolver):
             design_vars_grad = design_vars.clone().detach().requires_grad_(True)
             GC_grad = fe_result.GC.clone().detach().requires_grad_(True)
             jacobian_grad = {k: v.detach().clone().requires_grad_(True) for k, v in jacobian_dict.items()}
+            fe_result.GC = GC_grad  # Use GC_grad for the assembly to track gradients through R and K
+            fe_result.jacobian = jacobian_grad  # Use jacobian_grad to track gradients through the Jacobian
             
             # 4. Apply Design Variables
             apply_func(self.assembly, design_vars_grad)
@@ -341,10 +339,7 @@ class StaticImplicitSolver(BaseSolver):
             R_grad = self.assembly.assemble_force(GC=fe_result.GC)
 
             # 5. Compute first adjoint vector W0
-            if other_args is None:
-                objective = compute_objective_func(GC_grad, jacobian_grad, self.assembly)
-            else:
-                objective = compute_objective_func(GC_grad, jacobian_grad, self.assembly, other_args)
+            objective = compute_objective_func(fe_result, self.assembly)
 
             # 6. Get Ldx and Ldy for the adjoint solve
             objective.backward(retain_graph=True)
@@ -441,6 +436,8 @@ class StaticImplicitSolver(BaseSolver):
         finally:            
             # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
             self._detach_recursive(self.assembly)
+            self._detach_recursive(fe_result)
+            fe_result.remove_stored_factorization()
 
         return sensitivity
     
@@ -450,8 +447,7 @@ class StaticImplicitSolver(BaseSolver):
         design_vars: torch.Tensor,
         load_names: Optional[list[str]],
         apply_func: Callable[[Assembly, torch.Tensor], None] ,
-        compute_objective_funcs: list[Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str]], torch.Tensor]],
-        other_args: Optional[dict[str]] = None
+        compute_objective_funcs: Callable[[list[StaticResult], Assembly], torch.Tensor],
     ) -> torch.Tensor:
         """
         Compute the Jacobian sensitivity (dR/dVars) for the static problem.
@@ -469,12 +465,11 @@ class StaticImplicitSolver(BaseSolver):
                 - Signature: `def apply_func(assembly: Assembly, design_vars: torch.Tensor) -> None`
                 - Behavior: Modify `assembly` in-place using `design_vars`. Operations must be traceable
                 by Autograd (e.g., `part.nodes = original_nodes + design_vars.reshape_as(part.nodes)`).
-            compute_objective_funcs (list[Callable[[torch.Tensor, dict[str, torch.Tensor], Assembly, dict[str, torch.Tensor]], torch.Tensor]]): 
-                A list of callbacks to compute the objective scalars.
-                - Signature: `def compute_objective_func(GC: torch.Tensor, jacobian: dict[str, torch.Tensor], assembly: Assembly, other_args: Optional[dict[str]]) -> torch.Tensor`
-                - Args: `GC` is the displacement vector (detached from physics but tracking gradient).
+            compute_objective_funcs (Callable[[list[StaticResult], Assembly], torch.Tensor]): 
+                A callback to compute the objective scalar.
+                - Signature: `def compute_objective_func(fe_results: list[StaticResult], assembly: Assembly) -> torch.Tensor`
+                - Args: `fe_results` contains the necessary solution data.
                 - Returns: A scalar tensor representing the objective value (e.g., compliance, stress).
-            other_args (dict[str], optional): Additional arguments for the objective function.
         Returns:
             torch.Tensor: The sensitivity of the objective with respect to design variables.
                 Shape matches `design_vars`.
@@ -484,11 +479,10 @@ class StaticImplicitSolver(BaseSolver):
             apply_func(self.assembly, design_vars_grad)
             self.assembly.initialize()
 
-            print("Computing Jacobian sensitivity for each step:")
-            print(f" -Step 0/{len(fe_results)} sensitivity computed.\r", end='')
+            # 0. Set gradient required for each step's GC and Jacobians
             for idx, fe_result in enumerate(fe_results):
                 # 0. Set load parameters and prepare jacobian
-                self.assembly.set_load_parameters(fe_results[0].load_params)
+                self.assembly.set_load_parameters(fe_result.load_params)
 
                 # 1. Factorize system if needed
                 if fe_result.if_factorized is False:
@@ -499,44 +493,51 @@ class StaticImplicitSolver(BaseSolver):
                     jacobian_dict = fe_result.jacobian
                 else:                
                     jacobian_dict = self.get_jacobian(result=fe_result, load_names=load_names)
-                    fe_result.jacobian = jacobian_dict
-
-                if len(jacobian_dict.keys()) == 0:
-                    jacobian = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
-                else:
-                    jacobian = torch.cat([jacobian_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
 
                 # 3. Prepare Autograd graph
                 GC_grad = fe_result.GC.clone().detach().requires_grad_(True)
                 jacobian_grad = {k: v.detach().clone().requires_grad_(True) for k, v in jacobian_dict.items()}
+
+                fe_result.GC = GC_grad  # Use GC_grad for the assembly to track gradients through R and K
+                fe_result.jacobian = jacobian_grad  # Use jacobian_grad to track gradients through the Jacobian
+
+            # 4. Compute first adjoint vector W0
+            objective = compute_objective_funcs(fe_results, self.assembly)
+
+            # 5. Get Ldx and Ldy for the adjoint solve
+            objective.backward(retain_graph=True)
+
+            print("Computing Jacobian sensitivity for each step:")
+            print(f" -Step 0/{len(fe_results)} sensitivity computed.\r", end='')
+            for idx, fe_result in enumerate(fe_results):
+                # Each step must use its own load state when assembling R, dR/dp and dK/dp.
+                self.assembly.set_load_parameters(fe_result.load_params)
                 
-                # 4. Get R for the current step
+                # 6. Get R for the current step
                 R_grad = self.assembly.assemble_force(GC=fe_result.GC)
 
-                # 5. Compute first adjoint vector W0
-                if other_args is None:
-                    objective = compute_objective_funcs[idx](GC_grad, jacobian_grad, self.assembly)
+                if len(load_names) > 0:
+                    jacobian = torch.cat([fe_result.jacobian[load_name] for load_name in load_names], dim=1).detach()
                 else:
-                    objective = compute_objective_funcs[idx](GC_grad, jacobian_grad, self.assembly, other_args)
+                    jacobian = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
 
-                # 6. Get Ldx and Ldy for the adjoint solve
-                objective.backward(retain_graph=True)
-                if GC_grad.grad is None:
-                    Ldx = torch.zeros_like(GC_grad)
+                # 7. Compute Ldx and Ldy for the adjoint solve
+                if fe_result.GC.grad is None:
+                    Ldx = torch.zeros_like(fe_result.GC)
                 else:
-                    Ldx = GC_grad.grad.clone().detach()
+                    Ldx = fe_result.GC.grad.clone().detach()
 
                 if len(load_names) > 0:
-                    Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in jacobian_grad.items()}
+                    Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in fe_result.jacobian.items()}
                     Ldy = torch.cat([Ldy_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
                 else:
-                    Ldy = torch.zeros((GC_grad.numel(), 0), device=GC_grad.device, dtype=GC_grad.dtype)
+                    Ldy = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
 
-                # 7. sensitivity for GC
+                # 8. sensitivity for GC
                 W0 = -fe_result.K_solver.solve(fe_result.K_sp, Ldx.cpu().numpy())
-                W0_tensor = torch.tensor(W0, dtype=GC_grad.dtype, device=GC_grad.device)
+                W0_tensor = torch.tensor(W0, dtype=fe_result.GC.dtype, device=fe_result.GC.device)
 
-                # 8. For each parameter, compute the Jacobian sensitivity using the chain rule:
+                # 9. For each parameter, compute the Jacobian sensitivity using the chain rule:
 
                 ## get the current load parameters as a single tensor
                 total_load_params_list = []
@@ -547,10 +548,10 @@ class StaticImplicitSolver(BaseSolver):
                 if len(total_load_params_list) > 0:
                     total_load_params = torch.cat(total_load_params_list, dim=0)
                 else:
-                    total_load_params = torch.zeros((0,), device=GC_grad.device, dtype=GC_grad.dtype)
+                    total_load_params = torch.zeros((0,), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
                 num_load_params = total_load_params.numel()
 
-                obj_part_y = torch.zeros(1, device=GC_grad.device, dtype=GC_grad.dtype)
+                obj_part_y = torch.zeros(1, device=fe_result.GC.device, dtype=fe_result.GC.dtype)
                 K_indices = self.assembly.assemble_Stiffness_Matrix(GC=fe_result.GC)[1]
                 wKdp = torch.zeros_like(fe_result.GC)
                 for para_idx in range(num_load_params):
@@ -561,10 +562,10 @@ class StaticImplicitSolver(BaseSolver):
 
 
                     W1 = fe_result.K_solver.solve(fe_result.K_sp, Ldy_now.cpu().numpy())
-                    W1_tensor = torch.tensor(W1, dtype=GC_grad.dtype, device=GC_grad.device)
+                    W1_tensor = torch.tensor(W1, dtype=fe_result.GC.dtype, device=fe_result.GC.device)
                     ### evaluate the stiffness matrix sensitivity dK/dPara using autograd
                     def get_Kdp(load_now: torch.Tensor):
-                        GC_now = fe_result.GC + jacobian[:, para_idx] * (load_now - load_now.detach())
+                        GC_now = fe_result.GC + jacobian[:, para_idx].detach() * (load_now - load_now.detach())
                         index_now = 0
                         for load_name in load_names:
                             load = self.assembly._loads[load_name]
@@ -584,7 +585,7 @@ class StaticImplicitSolver(BaseSolver):
 
                     ### evaluate the stiffness matrix sensitivity dR/dPara using autograd
                     def get_Rdp(load_now: torch.Tensor):
-                        GC_now = GC_grad + jacobian[:, para_idx] * (load_now - load_now.detach())
+                        GC_now = fe_result.GC + jacobian[:, para_idx].detach() * (load_now - load_now.detach())
                         index_now = 0
                         for load_name in load_names:
                             load = self.assembly._loads[load_name]
@@ -603,7 +604,7 @@ class StaticImplicitSolver(BaseSolver):
                     wKdpKinv = fe_result.K_solver.solve(fe_result.K_sp, wKdp.cpu().numpy())
                 else:
                     wKdpKinv = torch.zeros_like(wKdp)
-                wKdpKinv_tensor = torch.tensor(wKdpKinv, dtype=GC_grad.dtype, device=GC_grad.device)
+                wKdpKinv_tensor = torch.tensor(wKdpKinv, dtype=fe_result.GC.dtype, device=fe_result.GC.device)
                 
                 obj_part_x = ((W0_tensor + wKdpKinv_tensor) * R_grad).sum()
 
@@ -615,6 +616,7 @@ class StaticImplicitSolver(BaseSolver):
                     obj_total.backward()
 
                 fe_result.remove_stored_factorization()
+                self._detach_recursive(fe_result)
 
                 print(f" -Step {idx+1}/{len(fe_results)} sensitivity computed.\r", end='')
 

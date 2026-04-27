@@ -30,7 +30,8 @@ fe.solver = torchfea.solver.StaticImplicitSolver()
 
 fe.assembly.add_load(torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
-fe.assembly.add_load(torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_2_All', pressure=0.02),
+load2 = torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_2_All', pressure=0.02)
+fe.assembly.add_load(load2,
                 name='pressure-2')
                 
 # fe.assembly.add_load(torch_fea.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
@@ -49,15 +50,19 @@ fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_mode
 
 t1 = time.time()
 fe.initialize()
-if not os.path.exists('Z:/temp/%s_results.npz' % name):
-    feresult = fe.solve(tol_error=1e-6)
-    feresult.save('Z:/temp/%s_results.npz' % name)
+if not os.path.exists('Z:/temp/%s_results1.npz' % name):
+    load2.pressure = 0.02
+    feresult1 = fe.solve(tol_error=1e-6)
+    feresult1.save('Z:/temp/%s_results1.npz' % name)
 else:
-    feresult = torchfea.solver.StaticResult.load('Z:/temp/%s_results.npz' % name)
-GC0 = feresult.GC.clone().detach()
-RGC0 = fe.assembly._GC2RGC(GC0)
+    feresult1 = torchfea.solver.StaticResult.load('Z:/temp/%s_results1.npz' % name)
 
-
+if not os.path.exists('Z:/temp/%s_results2.npz' % name):
+    load2.pressure = 0.05
+    feresult2 = fe.solve(tol_error=1e-6)
+    feresult2.save('Z:/temp/%s_results2.npz' % name)
+else:
+    feresult2 = torchfea.solver.StaticResult.load('Z:/temp/%s_results2.npz' % name)
 
 fe.initialize()
 
@@ -69,30 +74,55 @@ def apply_design_vars(assembly: torchfea.Assembly,
     part = assembly.get_part('final_model')
     part.nodes = design_vars.reshape(part.nodes.shape)
 
-jacobian = solver.get_jacobian(feresult, load_names=['pressure-1', 'pressure-2'])
+jacobian1 = solver.get_jacobian(feresult1, load_names=['pressure-1', 'pressure-2'])
+jacobian2 = solver.get_jacobian(feresult2, load_names=['pressure-1', 'pressure-2'])
+feresult1.jacobian = jacobian1
+feresult2.jacobian = jacobian2
 
-def compute_objective_jacobian(GC: torch.Tensor,
-                               jacobian: dict[str, torch.Tensor],
+def compute_objective_jacobian(fe_results: list[torchfea.solver.StaticResult],
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    return jacobian['pressure-1'][-2, 0] * GC[-2] * jacobian['pressure-2'][-2, 0]
+    assembly.set_load_parameters(feresult1.load_params)
+    energy1 = assembly._total_Potential_Energy(GC=fe_results[1].GC)
+    assembly.set_load_parameters(feresult2.load_params)
+    energy0 = assembly._total_Potential_Energy(GC=fe_results[0].GC)
+    print('E1=%f, E0=%f' % (energy1.item(), energy0.item()))
+    return fe_results[0].jacobian['pressure-1'][-2, 0] * fe_results[0].GC[-2] * fe_results[0].jacobian['pressure-2'][-2, 0] * \
+        (energy1 - energy0)
 
-grad_sensi_jacobian = solver.get_jacobian_sensitivity(
-    fe_result=feresult,
+def compute_objective_jacobian0(fe_result: torchfea.solver.StaticResult,
+                        assembly: torchfea.Assembly,
+                        ) -> torch.Tensor:
+    # compute the sensitivity of the displacement
+    return fe_result.jacobian['pressure-1'][-2, 0] * fe_result.GC[-2] * fe_result.jacobian['pressure-2'][-2, 0]
+
+grad_sensi_jacobian_batch = solver.get_jacobian_sensitivity_multistep(
+    fe_results=[feresult1, feresult2],
     design_vars=part.nodes.reshape(-1),
     load_names=['pressure-1', 'pressure-2'],
     apply_func=apply_design_vars,
-    compute_objective_func=compute_objective_jacobian,
+    compute_objective_funcs=compute_objective_jacobian,
     )
-grad_sensi_jacobian = grad_sensi_jacobian.reshape(part.nodes.shape)
+
+grad_sensi_jacobian = solver.get_jacobian_sensitivity(
+    fe_result=feresult1,
+    design_vars=part.nodes.reshape(-1),
+    load_names=['pressure-1', 'pressure-2'],
+    apply_func=apply_design_vars,
+    compute_objective_func=compute_objective_jacobian0,
+    )
+grad_sensi_jacobian_single = grad_sensi_jacobian.reshape(part.nodes.shape)
+grad_sensi_jacobian_batch = grad_sensi_jacobian_batch.reshape(part.nodes.shape)
 nodes0 = part.nodes.clone().detach()
-epsilon = 1e-3
+epsilon = 1e-2
 test_pair = ((2, 1), (10, 0), (5, 1))
 
-index_test = torch.where(grad_sensi_jacobian.abs() > 0.000001)
+index_test = torch.where(grad_sensi_jacobian_batch.abs() > 0.000001)
 
-obj0 = compute_objective_jacobian(GC0, feresult.jacobian, fe.assembly)
+feresult1.jacobian = jacobian1
+feresult2.jacobian = jacobian2
+obj0 = compute_objective_jacobian([feresult1, feresult2], fe.assembly)
 
 for i in range(index_test[0].shape[0]):
     indtest1 = index_test[0][i].item()
@@ -101,16 +131,26 @@ for i in range(index_test[0].shape[0]):
     #     continue
     part.nodes = nodes0.detach().clone()
     part.nodes[indtest1, indtest2] += epsilon
-    result1 = fe.solve(tol_error=1e-6, GC0=GC0)
+
+    load2.pressure = 0.02
+    newresult1 = fe.solve(tol_error=1e-6, GC0=feresult1.GC)
     GC1 = fe.assembly.GC.clone().detach()
-    jacobian1 = solver.get_jacobian(result1, load_names=['pressure-1', 'pressure-2'])
-    obj1 = compute_objective_jacobian(GC1, jacobian1, fe.assembly)
+    jacobian1 = solver.get_jacobian(newresult1, load_names=['pressure-1', 'pressure-2'])
+    newresult1.jacobian = jacobian1
+    
+    load2.pressure = 0.05
+    newresult2 = fe.solve(tol_error=1e-6, GC0=feresult2.GC)
+    GC2 = fe.assembly.GC.clone().detach()
+    jacobian2 = solver.get_jacobian(newresult2, load_names=['pressure-1', 'pressure-2'])
+    newresult2.jacobian = jacobian2
+
+    obj1 = compute_objective_jacobian([newresult1, newresult2], fe.assembly)
 
     diff = (obj1 - obj0) / epsilon
     print('Testing node (%d, %d):' % (indtest1, indtest2))
     print('Finite difference Jacobian sensitivity:', diff.item())
-    print('Autograd Jacobian sensitivity:', grad_sensi_jacobian[indtest1, indtest2].item())
-    print('Error:', abs(diff - grad_sensi_jacobian[indtest1, indtest2].item()) / abs(diff))
+    print('Autograd Jacobian sensitivity:', grad_sensi_jacobian_batch[indtest1, indtest2].item())
+    print('Error:', abs(diff - grad_sensi_jacobian_batch[indtest1, indtest2].item()) / abs(diff))
     print('\n\n')
 
 print('Gradient check for node position:')

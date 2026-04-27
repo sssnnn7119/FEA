@@ -233,11 +233,11 @@ def apply_design_vars(assembly: torchfea.Assembly,
     part = assembly.get_part('final_model')
     part.nodes[0, 2] = design_vars
 
-def compute_objective(GC: torch.Tensor,
+def compute_objective(fe_result: torchfea.solver.StaticResult,
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    return GC[-2]
+    return fe_result.GC[-2]
     
 grad_sensi = solver.get_sensitivity(
     fe_result=feresult,
@@ -248,14 +248,13 @@ grad_sensi = solver.get_sensitivity(
 
 jacobian = solver.get_jacobian(feresult, load_names=['pressure-1'])
 
-def compute_objective_jacobian(GC: torch.Tensor,
-                               jacobian: torch.Tensor,
+def compute_objective_jacobian(fe_result: torchfea.solver.StaticResult,
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    return jacobian[-2, 0] + GC[-2]
+    return fe_result.jacobian['pressure-1'][-2, 0] + fe_result.GC[-2]
 
-jacobian, grad_sensi_jacobian = solver.get_jacobian_sensitivity(
+grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     fe_result=feresult,
     design_vars=part.nodes[0, 2].reshape(-1),
     load_names=['pressure-1'],
@@ -263,13 +262,15 @@ jacobian, grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     compute_objective_func=compute_objective_jacobian,
     )
 grad_sensi_jacobian = grad_sensi_jacobian
+jacobian = solver.get_jacobian(feresult, load_names=['pressure-1'])
 jacobian0 = torch.cat([jacobian[load_name] for load_name in ['pressure-1']], dim=1)
 nodes0 = part.nodes.clone().detach()
 epsilon = 1e-3
 test_pair = ((2, 1), (10, 0), (5, 1))
 
 
-obj0 = compute_objective_jacobian(GC0, jacobian0, fe.assembly)
+feresult.jacobian = {'pressure-1': jacobian0}
+obj0 = compute_objective_jacobian(feresult, fe.assembly)
 
 indtest1 = 0
 indtest2 = 2
@@ -281,7 +282,8 @@ result1 = fe.solve(tol_error=1e-6, GC0=GC0)
 GC1 = fe.assembly.GC.clone().detach()
 jacobian1 = solver.get_jacobian(result1, load_names=['pressure-1'])
 jacobian1 = torch.cat([jacobian1[load_name] for load_name in ['pressure-1']], dim=1)
-obj1 = compute_objective_jacobian(GC1, jacobian1, fe.assembly)
+result1.jacobian = {'pressure-1': jacobian1}
+obj1 = compute_objective_jacobian(result1, fe.assembly)
 
 
 

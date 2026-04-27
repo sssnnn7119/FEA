@@ -108,18 +108,18 @@ def apply_design_vars(assembly: torchfea.Assembly,
     part = assembly.get_part('final_model')
     part.nodes = design_vars.reshape(part.nodes.shape)
 
-def compute_objective(GC: torch.Tensor,
+def compute_objective(fe_result: torchfea.solver.StaticResult,
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    R = assembly._assemble_generalized_Matrix(RGC=fe.assembly._GC2RGC(GC))[0]
+    R = assembly._assemble_generalized_Matrix(RGC=fe.assembly._GC2RGC(fe_result.GC))[0]
     R_now = R[:fe.assembly.RGC_list_indexStart[1]].reshape([-1, 3])
     R_bc = R_now[bc_dof2]
     return R_bc.sum(0)[1]
     
-grad_sensi = torchfea.solver.get_sensitivity_static(
+solver: torchfea.solver.StaticImplicitSolver = fe.solver
+grad_sensi = solver.get_sensitivity(
     fe_result=fearesult,
-    assembly=fe.assembly,
     design_vars=part.nodes.reshape(-1),
     apply_func=apply_design_vars,
     compute_objective_func=compute_objective,
