@@ -13,7 +13,7 @@ class Pressure(BaseLoad):
             pressure (float): the pressure value
         """
         super().__init__()
-        self.surface_name = surface_set
+        self.surface_set = surface_set
         self.instance_name = instance_name
         """Record the instance name and surface name
         """
@@ -60,7 +60,7 @@ class Pressure(BaseLoad):
         self._load_index = self._assembly.get_instance(self.instance_name)._RGC_index
         index_offset = self._assembly.RGC_list_indexStart[self._load_index]
 
-        self.surface_element = assembly.get_instance(self.instance_name).surfaces.get_elements(self.surface_name)
+        self.surface_element = assembly.get_instance(self.instance_name).surfaces.get_elements(self.surface_set)
 
         _Vdot_indices = []
         _Vdot_2_indices = []

@@ -7,15 +7,14 @@ if TYPE_CHECKING:
 import numpy as np
 import torch
 from . import materials
+from ...interfaces import Serializable
 
-class BaseElement():
-    _subclasses: dict[str, 'BaseElement'] = {}
+class BaseElement(Serializable):
+    
+    _serialized_attributes: list[str] = ['_elems_index', '_elems', '_density', 'materials']
 
-    def __init_subclass__(cls):
-        """Register subclasses in the class registry for factory method."""
-        cls._subclasses[cls.__name__] = cls
 
-    def __init__(self, elems_index: torch.Tensor, elems: torch.Tensor, part: Part) -> None:
+    def __init__(self, elems_index: torch.Tensor, elems: torch.Tensor) -> None:
 
         super().__init__()
         self.shape_function: list[torch.Tensor]
@@ -75,8 +74,6 @@ class BaseElement():
             the number of nodes per element
         """
 
-        self.part = part
-
     @property
     def density(self) -> torch.Tensor:
         return self._density
@@ -93,7 +90,7 @@ class BaseElement():
         """
         raise NotImplementedError('The gaussian points of the element is not implemented yet')
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         pass
     
     def get_mass_matrix(self,rotation_matrix:torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -21,11 +21,11 @@ class C3D4(Element_3D):
             N_i = \ksi_i * \ksi_i, i<=3
     """
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None, part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 4
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         
         self.shape_function = [
             torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
@@ -38,8 +38,8 @@ class C3D4(Element_3D):
         self.gaussian_weight = torch.tensor([1 / 6])
 
         p0 = torch.tensor([[0.25, 0.25, 0.25]])
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
         
     
     def extract_surface(self, surface_ind: int,
@@ -85,11 +85,11 @@ class C3D10(Element_3D):
             N_i = 4 \ksi_j \ksi_k, i>2 and jk is the neighbor nodals fo i-th nodal
     """
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None, part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 4
         
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
 
         self.shape_function = [
             torch.tensor([[1., -3., -3., -3., 4., 4., 4., 2., 2., 2.],
@@ -116,8 +116,8 @@ class C3D10(Element_3D):
                         [beta, alpha, beta], [beta, beta, alpha]])
             
             
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]

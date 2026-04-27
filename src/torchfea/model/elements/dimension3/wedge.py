@@ -27,12 +27,12 @@ class C3D6(Element_3D):
         N_5 = 0.5 * \ksi_1 * (1 + \ksi_2) \n
     """
     
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None, part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 5
         
     
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         
         # Shape function coefficients in format aligned with your other elements
         self.shape_function = [
@@ -79,8 +79,8 @@ class C3D6(Element_3D):
         # # Gauss integration points setup
         # self._num_gaussian = 9
         
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
         
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]
@@ -134,16 +134,15 @@ class C3D15(Element_3D):
 
     def __init__(self,
                  elems: torch.Tensor = None,
-                 elems_index: torch.Tensor = None,
-                 part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+                 elems_index: torch.Tensor = None,):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 5
         # Shape function coefficients and derivatives
         # Format: [shape_function, derivatives]
         # These matrices represent the shape functions and their derivatives
         # for the 15-node prismatic element
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
 
         # Shape function matrix (coefficients for each node's shape function)
         self.shape_function = [
@@ -239,8 +238,8 @@ class C3D15(Element_3D):
         self._num_gaussian = 9
 
         # Load the Gaussian points for integration
-        self._pre_load_gaussian(p0.reshape([-1, 3]), nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0.reshape([-1, 3]), nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]

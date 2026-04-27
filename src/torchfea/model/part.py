@@ -10,13 +10,15 @@ import torch
 from . import elements
 from .obj_base import BaseObj
 from .elements import BaseSurface, BaseElement, surfaces
-
+from ..interfaces import Serializable
 import pyvista as pv
 
-class _Surfaces():
+class _Surfaces(Serializable):
     """
     Class representing a set of surfaces in the finite element model.
     """
+
+    _serialized_attributes = ['_surface_dict']
 
     def __init__(self):
         self._surface_dict: dict[str, list[tuple[np.ndarray, int]]] = {}
@@ -27,7 +29,7 @@ class _Surfaces():
         """
         Initialize the surface set before FEA.
         """
-        self._surface_elements.clear()
+        self._surface_elements = {}
         for name, surface_indices in self._surface_dict.items():
             element_now = part.extract_surfaces(name)
             self._surface_elements[name] = element_now
@@ -114,7 +116,10 @@ class _Surfaces():
         return list(self._surface_dict.keys())
 
 
-class Part:
+class Part(Serializable):
+
+
+
     def __init__(self, nodes: torch.Tensor) -> None:
 
         self.nodes: torch.Tensor = nodes
@@ -142,13 +147,10 @@ class Part:
         Values of the mass matrix.
         """
 
-
     def initialize(self, *args, **kwargs):
         for e in self.elems.values():
-            e.initialize()
+            e.initialize(self.nodes)
         self.surfaces.initialize(self)
-
-
 
     # region CAD
     def add_element(self, element: BaseElement, name: str = None):

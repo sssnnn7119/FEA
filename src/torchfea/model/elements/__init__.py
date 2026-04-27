@@ -26,6 +26,6 @@ def initialize_element(element_type: str,
         raise ValueError(f"Element type '{element_type}' is not recognized.")
     
     
-    result = element_class(elems_index=elems_index, elems=elems, part=part)
+    result = element_class(elems_index=elems_index, elems=elems)
 
     return result

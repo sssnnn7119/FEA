@@ -39,12 +39,11 @@ class C3D8(Element_3D):
 
     def __init__(self,
                  elems: torch.Tensor = None,
-                 elems_index: torch.Tensor = None,
-                 part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+                 elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 6
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         # Shape function coefficients
         # Linear shape functions for 8-node brick element with coordinates (g,h,r)
         # According to the provided function ordering:
@@ -160,8 +159,8 @@ class C3D8(Element_3D):
         ])
 
         # Load the Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         """
@@ -237,12 +236,11 @@ class C3D8R(C3D8):
 
     def __init__(self,
                  elems: torch.Tensor = None,
-                 elems_index: torch.Tensor = None,
-                 part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+                 elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self._hg_alpha = 1.0  # Hourglass stabilization parameter
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         # Shape function coefficients
         # Linear shape functions for 8-node brick element with coordinates (g,h,r)
         # According to the provided function ordering:
@@ -346,8 +344,8 @@ class C3D8R(C3D8):
         self._initialize_hourglass_control()
 
         # Load the Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
 
     def _initialize_hourglass_control(self):
         """
@@ -628,11 +626,11 @@ class C3D20(Element_3D):
         Mid-edge nodes use specific quadratic functions
     """
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None, part = None):
-        super().__init__(elems=elems, elems_index=elems_index, part=part)
+    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
+        super().__init__(elems=elems, elems_index=elems_index)
         self.num_surfaces = 6
 
-    def initialize(self, *args, **kwargs):
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
         # Shape function coefficients for 20-node brick element with coordinates (g,h,r)
         # According to the provided function ordering in C3base.py:
         # 0: constant, 1: g, 2: h, 3: r, 4: g*h, 5: h*r, 6: r*g, 
@@ -709,9 +707,9 @@ class C3D20(Element_3D):
                     idx += 1
         
         # Load Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=self.part.nodes)
-        super().initialize(*args, **kwargs)
-    
+        self._pre_load_gaussian(p0, nodes=nodes)
+        super().initialize(nodes, *args, **kwargs)
+
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         """
         Find surface elements for this element type

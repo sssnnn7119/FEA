@@ -6,9 +6,9 @@ if TYPE_CHECKING:
     from .. import Assembly
     from .baseresult import BaseResult
 import torch
+from ..interfaces import Serializable
 
-
-class BaseSolver:
+class BaseSolver(Serializable):
     """
     Base class for all solvers in the FEA module.
     """

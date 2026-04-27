@@ -1,10 +1,11 @@
 
+import numpy as np
 import torch
 from .model import Assembly
 from .solver import BaseSolver
+from .interfaces import Serializable
 
-
-class FEAController():
+class FEAController(Serializable):
 
     def __init__(self, maximum_iteration: int = 10000) -> None:
         """
@@ -94,3 +95,30 @@ class FEAController():
                     setattr(obj, k, v.to(device))
                 else:
                     self._change_device_recursive(v, device, visited)
+
+    def save_model(self, path: str) -> None:
+        """
+        Save the finite element model to a file.
+
+        Args:
+            path (str): The file path to save the model.
+
+        Returns:
+            None
+        """
+        serialized_data = self._serialize()
+        np.savez_compressed(path, serialized_data)
+
+def load_model(path: str):
+    """
+    Load a finite element model from a file.
+
+    Args:
+        path (str): The file path to load the model from.
+
+    Returns:
+        FEAController: The loaded finite element model.
+    """
+    loaded = np.load(path, allow_pickle=True)
+    serialized_data = loaded['arr_0']
+    return FEAController._deserialize(serialized_data)

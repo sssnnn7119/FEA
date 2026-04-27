@@ -7,10 +7,15 @@ if TYPE_CHECKING:
 import numpy as np
 import torch
 
+from ..interfaces import Serializable
 
-class BaseObj():
+
+class BaseObj(Serializable):
 
     def __init__(self) -> None:
+
+        super().__init__()
+
         """
         Initialize the FEA_Obj_Base class.
         """
@@ -32,6 +37,12 @@ class BaseObj():
         self._assembly: Assembly = None
         """The assembly this object belongs to."""
 
+    @property
+    def serialized_attributes(self):
+        """Get the list of attributes to be serialized."""
+        serialized_attrs = super().serialized_attributes
+        serialized_attrs = [attr for attr in serialized_attrs if attr != '_assembly']
+        return serialized_attrs
 
     def set_RGC_index(self, index: int) -> None:
         """
@@ -59,3 +70,4 @@ class BaseObj():
     
     def reinitialize(self, RGC: list[torch.Tensor]):
         pass
+

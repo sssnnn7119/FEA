@@ -16,8 +16,8 @@ from ..base import BaseElement
 class Element_3D(BaseElement):
 
     def __init__(self, elems_index: torch.Tensor,
-                 elems: torch.Tensor, part: Part) -> None:
-        super().__init__(elems_index, elems, part)
+                 elems: torch.Tensor) -> None:
+        super().__init__(elems_index, elems)
 
         self.shape_function_d1_gaussian: torch.Tensor
         """
@@ -78,18 +78,6 @@ class Element_3D(BaseElement):
                 b-th coordinates
                 
         """
-                
-        self.surf_order: torch.Tensor = torch.tensor([0, 0, 0, 0, 0, 0]).to(torch.int8)
-        """
-            whether to reduce the order of the element, for the first order element, this parameter is not used,\n
-            size: [surface] or [element, surface]
-
-            0: slave surface, i.e., the node on the surface is determined by other surfaces,\n
-            1: force reduce the order of the element on the surface,\n
-            2: force remain the order of the element on the surface,\n
-
-            priority: 2>1>0
-        """
 
         self._num_gaussian: int
         """
@@ -106,9 +94,9 @@ class Element_3D(BaseElement):
 
 
 
-    def initialize(self, *args, **kwargs) -> None:
+    def initialize(self, nodes: torch.Tensor, *args, **kwargs) -> None:
 
-        super().initialize(*args, **kwargs)
+        super().initialize(nodes, *args, **kwargs)
         # coo index of the stiffness matricx of structural stress
 
         index0_ = torch.stack([
@@ -164,51 +152,40 @@ class Element_3D(BaseElement):
         self.gaussian_coordinates = gauss_coordinates
         pp = self._get_interpolation_coordinates(gauss_coordinates)
 
-        # get the possible surface order
-        if self.surf_order.ndim == 1:
-            self.surf_order = self.surf_order.unsqueeze(0).repeat(self._elems.shape[0], 1)
-        self.surf_order = self.surf_order[:, :self.num_surfaces]
-        surf_order_all = self._get_all_possible_surface_order()
-
         # prepare the information for the FEA
         shapeFun1 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, self.num_nodes_per_elem])
         shapeFun0 = torch.zeros([self._num_gaussian, self._elems.shape[0], self.num_nodes_per_elem])
         det_Jacobian = torch.zeros([self._num_gaussian, self._elems.shape[0]])
-        for order_ind in range(surf_order_all.shape[0]):
-            surf_order_now = surf_order_all[order_ind]
 
-            elem_index = torch.where((self.surf_order - surf_order_now).abs().sum(1) == 0)[0]
-            if elem_index.shape[0] == 0:
-                continue
-            elem_now = self._elems[elem_index]
+        elem_now = self._elems
 
-            # process the shape function for the reduced order elements
-            shape0_now = self._reduce_order_shape_function(self.shape_function[0], surf_order_now)
+        # process the shape function for the reduced order elements
+        shape0_now = self.shape_function[0]
 
-            # get the derivative of the shape function
-            shape1_now = torch.stack([
-                    self._shape_function_derivative(shape0_now, 0),
-                    self._shape_function_derivative(shape0_now, 1),
-                    self._shape_function_derivative(shape0_now, 2),
-                ],
-                            dim=0)
+        # get the derivative of the shape function
+        shape1_now = torch.stack([
+                self._shape_function_derivative(shape0_now, 0),
+                self._shape_function_derivative(shape0_now, 1),
+                self._shape_function_derivative(shape0_now, 2),
+            ],
+                        dim=0)
 
-            # calculate the Jacobian at the guassian points
-            Jacobian = torch.zeros([self._num_gaussian, elem_index.shape[0], 3, 3])
-            temp_ = torch.einsum('gb, mab->gma', pp, shape1_now)
-            for i in range(self.num_nodes_per_elem):
-                Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
-                                        nodes[elem_now[:, i]])
+        # calculate the Jacobian at the guassian points
+        Jacobian = torch.zeros([self._num_gaussian, elem_now.shape[0], 3, 3])
+        temp_ = torch.einsum('gb, mab->gma', pp, shape1_now)
+        for i in range(self.num_nodes_per_elem):
+            Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
+                                    nodes[elem_now[:, i]])
 
-            # Jacobian_Function
-            # J: g(Gaussian) * e * 3(ref) * 3(rest)
-            det_Jacobian[:, elem_index] = Jacobian.det()
-            inv_Jacobian = Jacobian.inverse()
-            shapeFun1[:, elem_index] = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
-                                    shape1_now)
-            
-            shapeFun0[:, elem_index] = torch.einsum('ab, gb->ga', shape0_now,
-                                      pp).unsqueeze(1)
+        # Jacobian_Function
+        # J: g(Gaussian) * e * 3(ref) * 3(rest)
+        det_Jacobian = Jacobian.det()
+        inv_Jacobian = Jacobian.inverse()
+        shapeFun1 = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
+                                shape1_now)
+        
+        shapeFun0 = torch.einsum('ab, gb->ga', shape0_now,
+                                    pp).unsqueeze(1)
 
         self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight)
         self.shape_function_d1_gaussian = shapeFun1
@@ -506,68 +483,10 @@ class Element_3D(BaseElement):
         Modify the RGC_remain_index
         """
         RGC_remain_index[self._elems.unique().cpu().numpy()] = True
-        
-        mid_nodes_index = self.get_2nd_order_point_index(order_required=1).cpu().numpy()
-        if mid_nodes_index.shape[0] > 0:
-            # set the mid nodes to be not required DoFs
-            RGC_remain_index[mid_nodes_index[:, 0]] = False
-
-        mid_nodes_index = self.get_2nd_order_point_index(order_required=2).cpu().numpy()
-        if mid_nodes_index.shape[0] > 0:
-            # set the mid nodes to be not required DoFs
-            RGC_remain_index[mid_nodes_index[:, 0]] = True
 
         return RGC_remain_index
     
     # region second order methods
-
-    def get_2nd_order_point_index(self, order_required = 1) -> torch.Tensor:
-        """
-        The absolute point index of the element that lies in the middle of the element
-
-        get the 2-nd order point index of the element that lies in the middle of the element
-        only for the first order faces of the second order element
-        
-        Returns:
-            torch.Tensor: the 2-nd order point index of the element \n
-                size: [point_index, 3]\n
-                [0]: the index of the middle node of the element\n
-                [1]: the index of the neighbor node of the middle node of the element\n
-                [2]: the index of the other neighbor node of the middle node of the element\n
-        """
-        if self.surf_order.dim() == 1:
-            # if the surf_order is a 1D tensor, it means that the same order is applied to all surfaces
-            surf_order = self.surf_order.unsqueeze(0).repeat([self._elems.shape[0], 1])
-        else:
-            # if the surf_order is a 2D tensor, it means that different orders are applied to different surfaces
-            surf_order = self.surf_order
-
-        # get the mid node index
-        mid_nodes_index = []
-        for surf_ind in range(self.num_surfaces):
-            # find which element surface to reduce
-            ind_reduce_now = torch.where(surf_order[:, surf_ind] == order_required)[0]
-            if ind_reduce_now.shape[0] == 0:
-                # if there is no element to reduce, continue
-                continue
-
-            # get the relative point index of the element that lies in the middle of the element
-            mid_nodes_index_now = self.get_2nd_order_point_index_surface(surf_ind)
-            if mid_nodes_index_now.shape[0] == 0:
-                # if there is no mid node, continue
-                continue
-
-            # add the mid node index to the list
-            mid_nodes_index.append(self._elems[ind_reduce_now][:, mid_nodes_index_now].reshape([-1, 3]))
-
-        if len(mid_nodes_index) == 0:
-            # if there is no mid node, return an empty tensor
-            return torch.zeros([0, 3], dtype=torch.int64)
-        
-        mid_nodes_index = torch.cat(mid_nodes_index, dim=0)
-        mid_nodes_index = mid_nodes_index.unique(dim=0)
-
-        return mid_nodes_index
     
     def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
         """
@@ -588,114 +507,5 @@ class Element_3D(BaseElement):
         """
         return torch.zeros([0, 3], dtype=torch.int64)
     
-    def _get_all_possible_surface_order(self) -> torch.Tensor:
-        """
-        Get all possible surface orders for the element.
-
-        Returns:
-            torch.Tensor: A tensor containing the possible surface orders.
-        """
-
-        # For a second order element, the possible surface orders are 1 and 2
-        # 1 means the surface is reduced to a mid node, 2 means the surface
-
-        result = torch.ones([3**self.num_surfaces, self.num_surfaces], dtype=torch.int8)
-        for i in range(self.num_surfaces):
-            # set the i-th column to 1 or 2 based on the binary representation of the row index
-            result[:, i] = (torch.arange(0, 3**self.num_surfaces) // (3**i)) % 3
-
-        return result
-
-    def _reduce_order_shape_function(self, shape_function: torch.Tensor, surf_order: torch.Tensor) -> torch.Tensor:
-        """
-        Reduce the order of the shape function by averaging the values of the neighboring nodes.
-
-        Args:
-            shape_function: [a, b], the shape function of the element
-        Returns:
-            torch.Tensor: [a, b], the reduced order shape function of the element
-        """
-    
-        # get the mid node index
-        mid_nodes_index_list = []
-        for i in range(self.num_surfaces):
-            if surf_order[i] == 1:
-                # reduce the order of the shape function
-                mid_nodes_index_list.append(
-                    self.get_2nd_order_point_index_surface(i))
-        if len(mid_nodes_index_list) == 0:
-            # if there is no mid node, return an empty tensor
-            return shape_function.clone()
-        
-        mid_nodes_index = torch.cat(mid_nodes_index_list, dim=0)
-
-        # unique the mid_nodes_index
-        mid_nodes_index: torch.Tensor = torch.unique(mid_nodes_index, dim=0)
-
-        
-        # if the mid point belong to a surface with order 2, then the node will not be delete
-        mid2_nodes_index_list = []
-        for i in range(self.num_surfaces):
-            if surf_order[i] == 2:
-                # reduce the order of the shape function
-                mid2_nodes_index_list.append(
-                    self.get_2nd_order_point_index_surface(i))
-
-        if len(mid2_nodes_index_list) != 0:
-            mid2_nodes_index = torch.cat(mid2_nodes_index_list, dim=0)
-            mid2_nodes_index: torch.Tensor = torch.unique(mid2_nodes_index, dim=0)
-
-            matches = (mid_nodes_index.unsqueeze(1) == mid2_nodes_index.unsqueeze(0)).all(dim=2)
-            mask = ~matches.any(dim=1)
-            mid_nodes_index = mid_nodes_index[mask]
-
-        if mid_nodes_index.shape[0] == 0:
-            # if there is no mid node, return the original shape function
-            return shape_function.clone()
-
-        # reduce the order of the shape function
-        shape_function_reduced = shape_function.clone()
-        for i in range(mid_nodes_index.shape[0]):
-            mid_node = mid_nodes_index[i, 0]
-            neighbor1 = mid_nodes_index[i, 1]
-            neighbor2 = mid_nodes_index[i, 2]
-
-            shape_function_reduced[mid_node] = 0.
-            shape_function_reduced[neighbor1] += shape_function[mid_node] / 2
-            shape_function_reduced[neighbor2] += shape_function[mid_node] / 2
-
-        return shape_function_reduced
-
-    def refine_RGC(self, RGC: torch.Tensor, nodes: torch.Tensor) -> torch.Tensor:
-        """
-        Refine the first order surface's nodes, to make them the middle nodes of the neighboring nodes.
-
-        This method will not create new RGC, directly modify the input RGC.
-        
-        Args:
-            RGC: List of Reference Grid Coordinates
-            nodes: Node coordinates
-            
-        Returns:
-            Updated RGC
-        """
-        mid_nodes_index = self.get_2nd_order_point_index(order_required=1)
-        mid2_nodes_index = self.get_2nd_order_point_index(order_required=2)
-
-        if mid_nodes_index.shape[0] > 0 and mid2_nodes_index.shape[0] > 0:
-            # Remove from mid_nodes_index any nodes that are also in mid2_nodes_index
-            # First convert to node indices only (first column of each tensor)
-            mid_node_ids = mid_nodes_index[:, 0]
-            mid2_node_ids = mid2_nodes_index[:, 0]
-            
-            # Find which mid nodes should be kept (not in mid2)
-            mask = torch.where(~torch.isin(mid_node_ids, mid2_node_ids))[0]
-            
-            # Filter the mid_nodes_index to only include nodes not in mid2
-            mid_nodes_index = mid_nodes_index[mask]
-        
-        RGC[mid_nodes_index[:, 0]] = (RGC[mid_nodes_index[:, 1]] + RGC[mid_nodes_index[:, 2]]) / 2 + (nodes[mid_nodes_index[:, 1]] + nodes[mid_nodes_index[:, 2]] - 2 * nodes[mid_nodes_index[:, 0]]) / 2
-        
-        return RGC
     
     # endregion second order methods

@@ -2,10 +2,12 @@ import numpy as np
 import torch
 import importlib
 from .inp import FEA_INP
-from .controller import FEAController
+from .controller import FEAController, load_model
 from .model import Part, Instance, ReferencePoint, Assembly
 from .model import materials, elements, loads, constraints, surfaces, boundarys
 from . import solver
+
+from .interfaces import Serializable
 
 def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
     """

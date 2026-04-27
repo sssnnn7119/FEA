@@ -7,8 +7,13 @@ from . import ReferencePoint
 from . import loads, constraints, boundarys
 from .part import _Surfaces, Part
 import pyvista as pv
+from ..interfaces import Serializable
 
-class Assembly:
+
+class Assembly(Serializable):
+
+    _serialized_attributes: list[str] = ['_parts', '_instances', '_surfaces', '_reference_points', '_loads', '_constraints', '_boundarys']
+
     def __init__(self):
         
         self.device = torch.zeros(1).device
@@ -161,7 +166,7 @@ class Assembly:
                 raise ValueError(
                     f"Part '{part_name}' not found for instance '{ins}'.")
             ins.part = self._parts[part_name]
-            ins._RGC_requirements = ins.part.nodes.shape
+            ins._RGC_requirements = tuple(ins.part.nodes.shape)
 
         # region initialize the RGC
 

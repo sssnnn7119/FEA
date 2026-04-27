@@ -12,6 +12,8 @@ class LinearElastic(Materials_Base):
     can handle large deformations.
     """
 
+    _serialized_attributes: list[str] = ['E', 'nu']
+
     def __init__(self, E: torch.Tensor | float,
                  nu: torch.Tensor | float) -> None:
         """
