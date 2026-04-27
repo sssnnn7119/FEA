@@ -40,7 +40,7 @@ rp = fe.assembly.add_reference_point(torchfea.ReferencePoint([0, 0, 80]))
 
 fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
 
-fe.assembly.add_load(torchfea.loads.Penalty_DoF(s=2, k=1e4, target=20.0, obj_name=rp), name='penalty-1')
+# fe.assembly.add_load(torchfea.loads.Penalty_DoF(s=2, k=1e4, target=20.0, obj_name=rp), name='penalty-1')
 
 t1 = time.time()
 

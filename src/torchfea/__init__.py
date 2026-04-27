@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import importlib
 from .inp import FEA_INP
 from .controller import FEAController
 from .model import Part, Instance, ReferencePoint, Assembly
@@ -37,7 +38,7 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
 
         assembly_now.add_part(part=part_now, name=part_name)
         if create_instance:
-            assembly_now.add_instance(instance=Instance(part_now), name=part_name)
+            assembly_now.add_instance(instance=Instance(part_name=part_name), name=part_name)
 
         elems = inp.part[part_name].elems
         elems_num_now = 0
@@ -48,6 +49,15 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
             materials_type = np.unique(inp.part[part_name].elems_material[elems[key][:, 0], 2].astype(int))
 
             elems_num_now += elems[key].shape[0]
+
+            element_name = key
+            elems_now = elements.initialize_element(
+                        element_type=element_name,
+                        elems_index=torch.from_numpy(elems[key][:, 0]).to(torch.get_default_device()),
+                        elems=torch.from_numpy(elems[key][:, 1:]).to(torch.get_default_device()),
+                        part=part_now
+                        )
+
             for mat_type in materials_type:
                 index_now = np.where(inp.part[part_name].elems_material[elems[key][:, 0], 2].astype(int) == mat_type)
 
@@ -57,19 +67,11 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
                     materials_params=torch.from_numpy(inp.part[part_name].elems_material[elems[key][:, 0]][index_now][:, 3:]).to(device=default_device, dtype=default_dtype)
                 )
 
-                element_name = key
+                elems_now.set_materials(materials_now, name=f"material-type-{int(mat_type)}")
 
-                elems_now = elements.initialize_element(
-                            element_type=element_name,
-                            elems_index=torch.from_numpy(elems[key][:, 0]).to(torch.get_default_device()),
-                            elems=torch.from_numpy(elems[key][:, 1:]).to(torch.get_default_device()),
-                            part=part_now
-                            )
-                
-                elems_now.set_materials(materials_now)
-                elems_now.density = (inp.part[part_name].elems_material[elems[key][:, 0]][index_now][:, 1])
-                
-                part_now.add_element(elems_now)
+            # Density is stored per element row; keep full vector for this element block.
+            elems_now.density = inp.part[part_name].elems_material[elems[key][:, 0], 1]
+            part_now.add_element(elems_now)
  
         # Import surface sets from each part
         for surface_name, surface in inp.part[part_name].surfaces.items():

@@ -154,6 +154,15 @@ class Assembly:
         self._boundarys = dict(sorted(self._boundarys.items()))
         # endregion
 
+        # region initialize the instance with the part
+        for ins in self._instances.values():
+            part_name = ins.part_name
+            if part_name not in self._parts:
+                raise ValueError(
+                    f"Part '{part_name}' not found for instance '{ins}'.")
+            ins.part = self._parts[part_name]
+            ins._RGC_requirements = ins.part.nodes.shape
+
         # region initialize the RGC
 
         # initialize the RGC (redundant generalized coordinate)
@@ -171,7 +180,7 @@ class Assembly:
             RGC_index = self._allocate_RGC(
                 size=self._reference_points[rp]._RGC_requirements)
             self._reference_points[rp].set_RGC_index(RGC_index)
-        self.RGC[RGC_index][-1] = 1e-5
+            self.RGC[RGC_index][-1] = 1e-5
 
         for f in self._loads.keys():
             RGC_index = self._allocate_RGC(

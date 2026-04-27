@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 import numpy as np
 import torch
 from . import materials
+
 class BaseElement():
     _subclasses: dict[str, 'BaseElement'] = {}
 
@@ -46,7 +47,9 @@ class BaseElement():
 
         self._num_gaussian: int
 
-        self.materials: materials.Materials_Base
+        # Materials are managed as a dict so one element can aggregate multiple
+        # material contributions in energy/force/stiffness calculations.
+        self.materials: dict[str, materials.Materials_Base] = {}
 
         self._indices_matrix: torch.Tensor
         """
@@ -108,12 +111,66 @@ class BaseElement():
     def structural_Force(self, RGC: torch.Tensor,rotation_matrix:torch.Tensor, if_onlyforce: bool = False, *args, **kwargs):
         pass
 
-    def set_materials(self, materials: materials.Materials_Base):
+    def _iter_material_values(self):
+        """Iterate materials with backward compatibility for legacy single-material assignment."""
+        mats = self.materials
+        if isinstance(mats, dict):
+            if len(mats) == 0:
+                raise ValueError("No materials set for this element.")
+            return mats.values()
+
+        if isinstance(mats, materials.Materials_Base):
+            # Backward compatibility if external code directly assigns single material
+            return [mats]
+
+        raise TypeError("materials must be a dict[str, Materials_Base] or a Materials_Base instance")
+
+    def set_materials(self, mat: materials.Materials_Base | dict[str, materials.Materials_Base], name=None):
         """
-            set the materials of the element
+            Set materials of the element.
+
+            Args:
+                mat: one material or a dict of materials
+                name: key when setting a single material; auto-generated if None
         """
-        
-        self.materials = materials
+
+        if isinstance(mat, dict):
+            self.materials = dict(mat)
+            return
+
+        if not isinstance(mat, materials.Materials_Base):
+            raise TypeError("mat must be Materials_Base or dict[str, Materials_Base]")
+
+        if name is None:
+            number = len(self.materials) if isinstance(self.materials, dict) else 0
+            name = f"material-{number}"
+
+        if not isinstance(self.materials, dict):
+            # Normalize legacy assignment to dict on first set
+            self.materials = {}
+
+        self.materials[name] = mat
+
+    def delete_material(self, name: str | None = None):
+        """Delete one material by name, or clear all when name is None."""
+        mats = self.materials
+
+        if isinstance(mats, dict):
+            if name is None:
+                mats.clear()
+                return
+            if name not in mats:
+                raise ValueError(f"Material '{name}' not found in this element")
+            del mats[name]
+            return
+
+        if isinstance(mats, materials.Materials_Base):
+            if name is not None:
+                raise ValueError("Legacy single-material mode does not support named deletion")
+            self.materials = {}
+            return
+
+        raise TypeError("materials must be a dict[str, Materials_Base] or a Materials_Base instance")
         
     def set_required_DoFs(
             self, RGC_remain_index: np.ndarray) -> np.ndarray:

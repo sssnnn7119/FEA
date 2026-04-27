@@ -353,23 +353,33 @@ class Part:
     # endregion
 
 class Instance(BaseObj):
-    def __init__(self, part: Part) -> None:
+    def __init__(self, part_name: str, translation: torch.Tensor = None, rotation: torch.Tensor = None, external_surface: str = '') -> None:
         """
         Create an instance of a part.
 
         Parameters:
             part (Part): The part to be instantiated.
         """
-        self.part: Part = part
 
-        self._RGC_requirements = self.part.nodes.shape
+        super().__init__()
 
-        self._translation: torch.Tensor = torch.zeros(3)
-        """the translation vector of the instance"""
-        self._rotation: torch.Tensor = torch.randn(3) * 0.0
-        """the rotation vector of the instance defined in exponential map"""
+        self.part_name = part_name
 
-        self.external_surface: str = ''
+        self.part: Part = None
+
+        if translation is not None:
+            self._translation = translation
+        else:
+            self._translation: torch.Tensor = torch.zeros(3)
+            """the translation vector of the instance"""
+
+        if rotation is not None:
+            self._rotation = rotation
+        else:
+            self._rotation: torch.Tensor = torch.randn(3) * 0.0
+            """the rotation vector of the instance defined in exponential map"""
+
+        self.external_surface: str = external_surface
         """the name of the external surface for visualization"""
 
     @property

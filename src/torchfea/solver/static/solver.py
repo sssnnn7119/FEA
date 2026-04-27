@@ -831,9 +831,6 @@ class StaticImplicitSolver(BaseSolver):
             # update the GC
             GC = GCnew
 
-            # update the RGC
-            RGC = self.assembly._GC2RGC(GC)
-
             # self.show_surface(nodes=self.nodes+RGC[0])
 
             # update the energy

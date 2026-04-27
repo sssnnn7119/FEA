@@ -1,9 +1,10 @@
 import torch
-from .hyperelastic import NeoHookean, LinearElastic
+from .hyperelastic import NeoHookean, NeoHookeanLnJ
+from .linear import LinearElastic
 from .base import Materials_Base
 
 
-__all__ = ['initialize_materials', 'Materials_Base', 'NeoHookean', 'LinearElastic']
+__all__ = ['initialize_materials', 'Materials_Base', 'NeoHookean', 'NeoHookeanLnJ', 'LinearElastic']
 
 def initialize_materials(materials_type: int,
                          materials_params: torch.Tensor):

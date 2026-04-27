@@ -399,8 +399,9 @@ class Element_3D(BaseElement):
         J = F.det()
         I1 = (F**2).sum([-1, -2]) * J**(-2 / 3)
 
-        W = torch.zeros([self._num_gaussian, self._elems.shape[0]])
-        W = self.materials.strain_energy_density_C3(F=F,)
+        W = torch.zeros([self._num_gaussian, self._elems.shape[0]], device=F.device, dtype=F.dtype)
+        for mat_now in self._iter_material_values():
+            W = W + mat_now.strain_energy_density_C3(F=F,)
         
         Ea = torch.einsum(
             'ge,ge->',W,
@@ -467,13 +468,18 @@ class Element_3D(BaseElement):
         I1 = (F**2).sum([-1, -2]) * Jneg
         
         s = torch.zeros_like(F)
-        C = torch.zeros([s.shape[0], s.shape[1], 3, 3, 3, 3])
+        C = torch.zeros([s.shape[0], s.shape[1], 3, 3, 3, 3], device=F.device, dtype=F.dtype)
 
-        s, C = self.materials.material_Constitutive_C3(F=F,
-                                                    J=J,
-                                                    Jneg=Jneg,
-                                                    invF=invF,
-                                                    I1=I1)
+        for mat_now in self._iter_material_values():
+            s_now, C_now = mat_now.material_Constitutive_C3(
+                F=F,
+                J=J,
+                Jneg=Jneg,
+                invF=invF,
+                I1=I1,
+            )
+            s = s + s_now
+            C = C + C_now
 
         return F, I1, J, invF, s, C
 

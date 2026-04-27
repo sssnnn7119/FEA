@@ -396,8 +396,15 @@ class C3D8R(C3D8):
 
         # Get material properties (assuming isotropic material for simplicity)
 
-        # Extract an approximate shear modulus from the material stiffness tensor
-        shear_modulus = self.materials.mu.flatten()
+        # Aggregate shear modulus from all materials (parallel contribution assumption)
+        shear_modulus = None
+        for mat_now in self._iter_material_values():
+            if not hasattr(mat_now, 'mu'):
+                raise AttributeError(
+                    f"Material {mat_now.__class__.__name__} has no attribute 'mu' required by hourglass control"
+                )
+            mu_now = mat_now.mu.flatten()
+            shear_modulus = mu_now if shear_modulus is None else (shear_modulus + mu_now)
 
         # Calculate hourglass parameters for each mode
         # γₐᵢ = ∑ᵦ Γₐᵦ uᵦᵢ (hourglass mode projection coefficients)
