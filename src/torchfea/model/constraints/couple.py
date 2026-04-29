@@ -23,7 +23,7 @@ class Couple(BaseConstraint):
 
     def initialize(self, assembly):
         super().initialize(assembly)
-        self._indexNodes = self._assembly.get_instance(self.instance_name).set_nodes[self.set_nodes_name]
+        self._indexNodes = np.sort(self._assembly.get_instance(self.instance_name).set_nodes[self.set_nodes_name])
         self._rp_index = self._assembly.get_reference_point(self.rp_name)._RGC_index
         self._couple_index = self._assembly.get_instance(self.instance_name)._RGC_index
 

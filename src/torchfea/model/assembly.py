@@ -208,7 +208,7 @@ class Assembly(Serializable):
 
         # initialize the parts
         for part in self._parts.values():
-            part.initialize(self)
+            part.initialize()
 
         # initialize the instances
         for ins in self._instances.values():

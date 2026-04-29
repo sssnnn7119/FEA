@@ -1,3 +1,5 @@
+from turtle import shape
+
 import numpy as np
 import torch
 from .C3base import Element_3D
@@ -7,9 +9,9 @@ class C3D4(Element_3D):
     """
         Local coordinates:
             origin: 0-th nodal
-            \ksi_0: 0-1 vector
-            \ksi_1: 0-2 vector
-            \ksi_2: 0-3 vector
+            ksi_0: 0-1 vector
+            ksi_1: 0-2 vector
+            ksi_2: 0-3 vector
 
         face nodal always point at the void
             face0: 021
@@ -18,29 +20,22 @@ class C3D4(Element_3D):
             face3: 032
 
         shape_funtion:
-            N_i = \ksi_i * \ksi_i, i<=3
+            N_i = ksi_i * ksi_i, i<=3
     """
+    shape_function = [
+        torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
+    ]
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
-        super().__init__(elems=elems, elems_index=elems_index)
-        self.num_surfaces = 4
+    num_nodes_per_elem = 4
+    _num_gaussian = 1
+    
+    gaussian_weight_ref = torch.tensor([1 / 6])
 
-    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
-        
-        self.shape_function = [
-            torch.tensor([[1.0, -1.0, -1.0, -1.0], [0.0, 1.0, 0.0, 0.0],
-                          [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
-        ]
+    gaussian_coordinates = torch.tensor([[0.25, 0.25, 0.25]])
 
-        self.num_nodes_per_elem = 4
-        self._num_gaussian = 1
-        
-        self.gaussian_weight = torch.tensor([1 / 6])
+    num_surfaces = 4
 
-        p0 = torch.tensor([[0.25, 0.25, 0.25]])
-        self._pre_load_gaussian(p0, nodes=nodes)
-        super().initialize(nodes, *args, **kwargs)
-        
     
     def extract_surface(self, surface_ind: int,
                            elems_ind: torch.Tensor):
@@ -67,9 +62,9 @@ class C3D10(Element_3D):
     """
         Local coordinates:
             origin: 0-th nodal
-            \ksi_0: 0-1 vector
-            \ksi_1: 0-2 vector
-            \ksi_2: 0-3 vector
+            ksi_0: 0-1 vector
+            ksi_1: 0-2 vector
+            ksi_2: 0-3 vector
 
         face nodal always point at the void
             face0: 0(6)2(5)1(4)
@@ -81,76 +76,52 @@ class C3D10(Element_3D):
             4(01) 5(12) 6(02) 7(03) 8(13) 9(23)
 
         shape_funtion:
-            N_i = (2 \ksi_i - 1) * \ksi_i, i<=2 \n
-            N_i = 4 \ksi_j \ksi_k, i>2 and jk is the neighbor nodals fo i-th nodal
+            N_i = (2 ksi_i - 1) * ksi_i, i<=2 \n
+            N_i = 4 ksi_j ksi_k, i>2 and jk is the neighbor nodals fo i-th nodal
     """
+    shape_function = [
+        torch.tensor([[1., -3., -3., -3., 4., 4., 4., 2., 2., 2.],
+                      [0., -1., 0., 0., 0., 0., 0., 2., 0., 0.],
+                      [0., 0., -1., 0., 0., 0., 0., 0., 2., 0.],
+                      [0., 0., 0., -1., 0., 0., 0., 0., 0., 2.],
+                      [0., 4., 0., 0., -4., 0., -4., -4., 0., 0.],
+                      [0., 0., 0., 0., 4., 0., 0., 0., 0., 0.],
+                      [0., 0., 4., 0., -4., -4., 0., 0., -4., 0.],
+                      [0., 0., 0., 4., 0., -4., -4., 0., 0., -4.],
+                      [0., 0., 0., 0., 0., 0., 4., 0., 0., 0.],
+                      [0., 0., 0., 0., 0., 4., 0., 0., 0., 0.]]),
+    ]
+    num_nodes_per_elem = 10
+    _num_gaussian = 4
+    gaussian_weight_ref = torch.tensor([1 / 24, 1 / 24, 1 / 24, 1 / 24])
+    gaussian_coordinates = torch.tensor([
+        [0.13819660, 0.13819660, 0.13819660],
+        [0.58541020, 0.13819660, 0.13819660],
+        [0.13819660, 0.58541020, 0.13819660],
+        [0.13819660, 0.13819660, 0.58541020],
+    ])
+    num_surfaces = 4
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
-        super().__init__(elems=elems, elems_index=elems_index)
-        self.num_surfaces = 4
-        
-    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
 
-        self.shape_function = [
-            torch.tensor([[1., -3., -3., -3., 4., 4., 4., 2., 2., 2.],
-                        [0., -1., 0., 0., 0., 0., 0., 2., 0., 0.],
-                        [0., 0., -1., 0., 0., 0., 0., 0., 2., 0.],
-                        [0., 0., 0., -1., 0., 0., 0., 0., 0., 2.],
-                        [0., 4., 0., 0., -4., 0., -4., -4., 0., 0.],
-                        [0., 0., 0., 0., 4., 0., 0., 0., 0., 0.],
-                        [0., 0., 4., 0., -4., -4., 0., 0., -4., 0.],
-                        [0., 0., 0., 4., 0., -4., -4., 0., 0., -4.],
-                        [0., 0., 0., 0., 0., 0., 4., 0., 0., 0.],
-                        [0., 0., 0., 0., 0., 4., 0., 0., 0., 0.]]),  
-        ]
-
-        self.gaussian_weight = torch.tensor([1 / 24, 1 / 24, 1 / 24, 1 / 24])
-
-        self.num_nodes_per_elem = 10
-        self._num_gaussian = 4
-        
-        alpha = 0.58541020
-        beta = 0.13819660
-
-        p0 = torch.tensor([[beta, beta, beta], [alpha, beta, beta],
-                        [beta, alpha, beta], [beta, beta, alpha]])
-            
-            
-        self._pre_load_gaussian(p0, nodes=nodes)
-        super().initialize(nodes, *args, **kwargs)
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]
-        
+
         if index_now.shape[0] == 0:
             return []
-        
-        if self.surf_order.dim() == 1:
-            self.surf_order = self.surf_order.unsqueeze(0).repeat(self._elems.shape[0], 1)
-
-        ind_1order = torch.where(self.surf_order[index_now, surface_ind] == 1)[0]
-        ind_2order = torch.where(self.surf_order[index_now, surface_ind] != 1)[0]
 
         if surface_ind == 0:
-            
-            T3_elems = self._elems[index_now][ind_1order][:, [0, 2, 1]]
-            T6_elems = self._elems[index_now][ind_2order][:, [0, 2, 1, 6, 5, 4]]
-
+            T6_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
         elif surface_ind == 1:
-            T3_elems = self._elems[index_now][ind_1order][:, [0, 1, 3]]
-            T6_elems = self._elems[index_now][ind_2order][:, [0, 1, 3, 4, 8, 7]]
+            T6_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
         elif surface_ind == 2:
-            T3_elems = self._elems[index_now][ind_1order][:, [1, 2, 3]]
-            T6_elems = self._elems[index_now][ind_2order][:, [1, 2, 3, 5, 9, 8]]
+            T6_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
         elif surface_ind == 3:
-            T3_elems = self._elems[index_now][ind_1order][:, [0, 3, 2]]
-            T6_elems = self._elems[index_now][ind_2order][:, [0, 3, 2, 7, 9, 6]]
+            T6_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")
 
         result = []
-        if T3_elems.shape[0] > 0:
-            result.append(initialize_surfaces(T3_elems))
         if T6_elems.shape[0] > 0:
             result.append(initialize_surfaces(T6_elems))
         return result
@@ -161,21 +132,12 @@ class C3D10(Element_3D):
         This is used to identify the mid-edge nodes for the surface elements.
         """
         if surface_ind == 0:
-            return torch.tensor([[6, 0, 2],
-                                    [5, 1, 2],
-                                    [4, 0, 1]], dtype=torch.long)
+            return torch.tensor([[6, 0, 2], [5, 1, 2], [4, 0, 1]], dtype=torch.long)
         elif surface_ind == 1:
-            return torch.tensor([[4, 0, 1],
-                    [8, 1, 3],
-                    [7, 0, 3]], dtype=torch.long)
+            return torch.tensor([[4, 0, 1], [8, 1, 3], [7, 0, 3]], dtype=torch.long)
         elif surface_ind == 2:
-            return torch.tensor([[5, 1, 2],
-                    [9, 2, 3],
-                    [8, 1, 3]], dtype=torch.long)
+            return torch.tensor([[5, 1, 2], [9, 2, 3], [8, 1, 3]], dtype=torch.long)
         elif surface_ind == 3:
-            return torch.tensor([[7, 0, 3],
-                    [9, 2, 3],
-                    [6, 0, 2]], dtype=torch.long)
-
+            return torch.tensor([[7, 0, 3], [9, 2, 3], [6, 0, 2]], dtype=torch.long)
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")

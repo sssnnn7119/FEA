@@ -142,7 +142,7 @@ class C3D8(Element_3D):
         self._num_gaussian = 8
 
         # Standard weight for Gaussian quadrature (1 for each point)
-        self.gaussian_weight = torch.ones(8)
+        self.gaussian_weight_ref = torch.ones(8)
 
         # Gauss points for 2x2x2 integration
         # Use Gauss-Legendre quadrature with points at ±1/sqrt(3)
@@ -730,39 +730,21 @@ class C3D20(Element_3D):
         # Return appropriate face nodes according to face definitions in comments
         if surface_ind == 0:
             # Bottom face: 0-3-2-1 (nodes 0,3,2,1,11,10,9,8)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [0, 3, 2, 1]]
-            else:
                 quad_elems = self._elems[index_now][:, [0, 3, 2, 1, 11, 10, 9, 8]]
         elif surface_ind == 1:
             # Top face: 4-5-6-7 (nodes 4,5,6,7,12,13,14,15)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [4, 5, 6, 7]]
-            else:
                 quad_elems = self._elems[index_now][:, [4, 5, 6, 7, 12, 13, 14, 15]]
         elif surface_ind == 2:
             # Front face: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [0, 1, 5, 4]]
-            else:
                 quad_elems = self._elems[index_now][:, [0, 1, 5, 4, 8, 17, 12, 16]]
         elif surface_ind == 3:
             # Right face: 1-2-6-5 (nodes 1,2,6,5,9,18,13,17)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [1, 2, 6, 5]]
-            else:
                 quad_elems = self._elems[index_now][:, [1, 2, 6, 5, 9, 18, 13, 17]]
         elif surface_ind == 4:
             # Back face: 2-3-7-6 (nodes 2,3,7,6,10,19,14,18)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [2, 3, 7, 6]]
-            else:
                 quad_elems = self._elems[index_now][:, [2, 3, 7, 6, 10, 19, 14, 18]]
         elif surface_ind == 5:
             # Left face: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11)
-            if self.surf_order[surface_ind] == 1:
-                quad_elems = self._elems[index_now][:, [0, 4, 7, 3]]
-            else:
                 quad_elems = self._elems[index_now][:, [0, 4, 7, 3, 16, 15, 19, 11]]
         else:
             raise ValueError(f"Invalid surface index: {surface_ind}")

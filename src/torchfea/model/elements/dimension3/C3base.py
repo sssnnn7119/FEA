@@ -5,15 +5,19 @@ if TYPE_CHECKING:
     from ... import Part
 
 
-import re
-import time
-import pandas as pd
 import torch
 import numpy as np
 from ..base import BaseElement
 
 
 class Element_3D(BaseElement):
+
+
+
+    num_surfaces: int
+    """
+        the number of surfaces of the element
+    """
 
     def __init__(self, elems_index: torch.Tensor,
                  elems: torch.Tensor) -> None:
@@ -33,70 +37,14 @@ class Element_3D(BaseElement):
         self.shape_function_d0_gaussian: torch.Tensor
         """the shape functions of each guassian point [guassian, element, node]"""
 
-        self.shape_function: list[torch.Tensor]
-        """
-            the shape functions of the element
-
-            # coordinates: (g,h,r) in the local coordinates
-                0: constant,\n
-                1: g,\n
-                2: h,\n
-                3: r,\n
-                4: g*h,\n
-                5: h*r,\n
-                6: r*g,\n
-                7: g^2,\n
-                8: h^2,\n
-                9: r^2,\n
-                10: g^2*h,\n
-                11: h^2*g,\n
-                12: h^2*r,\n
-                13: r^2*h,\n
-                14: r^2*g,\n
-                15: g^2*r,\n
-                16: g*h*r,\n
-                17: g^3,\n
-                18: h^3,\n
-                19: r^3,\n
-
-            # the shape of shape_function 
-                
-                a-th func,\n
-                b-th coordinates
-                
-            # its derivative:
-                
-                m-th derivative,\n
-                a-th func,\n
-                b-th coordinates
-                
-            # and its 2-nd derivative
-                
-                m-th derivative,\n
-                n-th derivative,\n
-                a-th func,\n
-                b-th coordinates
-                
-        """
-
-        self._num_gaussian: int
-        """
-            the number of guassian points
-        """
-    
-        self.num_surfaces: int
-        """
-            the number of surfaces of the element
-        """
-
-        self.gaussian_coordinates: torch.Tensor
-        """the coordinates of gaussian points in the reference space"""
-
-
 
     def initialize(self, nodes: torch.Tensor, *args, **kwargs) -> None:
 
         super().initialize(nodes, *args, **kwargs)
+
+        # pre load the gaussian points and its weight for the element, which will be used in the FEA calculation
+        self._pre_load_gaussian(nodes=nodes)
+
         # coo index of the stiffness matricx of structural stress
 
         index0_ = torch.stack([
@@ -139,18 +87,16 @@ class Element_3D(BaseElement):
         self._indices_force[:, 2, :] += 2
         self._indices_force = self._indices_force.flatten().to(default_device)
 
-    def _pre_load_gaussian(self, gauss_coordinates: torch.Tensor, nodes: torch.Tensor):
+    def _pre_load_gaussian(self, nodes: torch.Tensor):
         """
         load the guassian points and its weight
 
         Args:
-            gauss_coordinates: [g, 3], the local coordinates of the element
             nodes: [p, 3], the global coordinates of the element
         """
 
         # get the coordinates of the guassian points
-        self.gaussian_coordinates = gauss_coordinates
-        pp = self._get_interpolation_coordinates(gauss_coordinates)
+        pp = self._get_interpolation_coordinates(self.gaussian_coordinates)
 
         # prepare the information for the FEA
         shapeFun1 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, self.num_nodes_per_elem])
@@ -187,7 +133,7 @@ class Element_3D(BaseElement):
         shapeFun0 = torch.einsum('ab, gb->ga', shape0_now,
                                     pp).unsqueeze(1)
 
-        self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight)
+        self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight_ref)
         self.shape_function_d1_gaussian = shapeFun1
         self.shape_function_d0_gaussian = shapeFun0
         

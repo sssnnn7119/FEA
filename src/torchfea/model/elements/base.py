@@ -13,6 +13,27 @@ class BaseElement(Serializable):
     
     _serialized_attributes: list[str] = ['_elems_index', '_elems', '_density', 'materials']
 
+    shape_function: list[torch.Tensor]
+    """
+        the shape functions of the element
+    """
+
+    _num_gaussian: int
+    """
+        the number of guassian points
+    """
+
+    num_nodes_per_elem: int
+    """ 
+        the number of nodes per element
+    """
+
+    gaussian_weight_ref: torch.Tensor
+    """        the weight of each guassian point"""
+
+    gaussian_coordinates: torch.Tensor
+    """the coordinates of gaussian points in the reference space"""
+
 
     def __init__(self, elems_index: torch.Tensor, elems: torch.Tensor) -> None:
 
@@ -44,8 +65,6 @@ class BaseElement(Serializable):
             the element connectivity 
         """
 
-        self._num_gaussian: int
-
         # Materials are managed as a dict so one element can aggregate multiple
         # material contributions in energy/force/stiffness calculations.
         self.materials: dict[str, materials.Materials_Base] = {}
@@ -60,19 +79,20 @@ class BaseElement(Serializable):
             the coo index of the tructural stress
         """
 
-        self._index_matrix_coalesce: torch.Tensor
+        self._index_matrix_coalesce: torch.Tensor = None
         """
             the start index of the stiffness matricx of structural stress
         """
 
-        self._density: torch.Tensor
+        self._density: torch.Tensor = None
         """
             the density of the element
         """
-        self.num_nodes_per_elem: int
-        """
-            the number of nodes per element
-        """
+
+        cls = self.__class__
+        cls.shape_function = [cls.shape_function[i].to(torch.get_default_device()).to(torch.get_default_dtype()) for i in range(len(cls.shape_function))]
+        cls.gaussian_weight_ref = cls.gaussian_weight_ref.to(torch.get_default_device()).to(torch.get_default_dtype())
+        cls.gaussian_coordinates = cls.gaussian_coordinates.to(torch.get_default_device()).to(torch.get_default_dtype())
 
     @property
     def density(self) -> torch.Tensor:

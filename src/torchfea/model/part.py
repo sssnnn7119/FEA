@@ -147,7 +147,18 @@ class Part(Serializable):
         Values of the mass matrix.
         """
 
-    def initialize(self, *args, **kwargs):
+        self.mid_pt_idxmap: dict[tuple[int, int], int] = {}
+        """A mapping from edge (node index pair) to midpoint node index, used for quadratic element conversion."""
+
+        self.mid_pt_idxmap_torch: torch.Tensor = None
+        """Same mapping as mid_pt_idxmap but in torch.Tensor format for efficient lookup during FEA calculations.
+        
+        [0]: node index 0 of the edge
+        [1]: node index 1 of the edge
+        [2]: midpoint node index corresponding to the edge
+        """
+
+    def initialize(self):
         for e in self.elems.values():
             e.initialize(self.nodes)
         self.surfaces.initialize(self)
@@ -272,6 +283,250 @@ class Part(Serializable):
             
         return
 
+    def convert_linear_to_quadratic_elements(self, element_name_list: list[str], new_element_name_list: list[str], if_update_setnodes = True):
+        """
+        Convert selected linear elements into quadratic elements.
+
+        Args:
+            element_name_list (list[str]): Names of the existing linear elements.
+            new_element_name_list (list[str]): Names for the new quadratic elements.
+            
+
+        This method replaces each old element in-place by a new quadratic element:
+        1. Extract all unique edges from the selected linear elements.
+        2. Create midpoint nodes for those edges and append them to part nodes.
+        3. Rebuild element connectivity according to the quadratic element node order.
+        4. Preserve density and material definitions.
+        """
+        if len(element_name_list) != len(new_element_name_list):
+            raise ValueError('element_name_list and new_element_name_list must have the same length.')
+
+        if len(set(new_element_name_list)) != len(new_element_name_list):
+            raise ValueError('new_element_name_list contains duplicate names.')
+
+        supported_conversion = {
+            'C3D4': 'C3D10',
+            'C3D6': 'C3D15',
+            'C3D8': 'C3D20',
+            'C3D8R': 'C3D20',
+        }
+
+        selected: list[tuple[str, str, BaseElement]] = []
+        reserved_new_names = set(self.elems.keys())
+
+        for old_name, new_name in zip(element_name_list, new_element_name_list):
+            if old_name not in self.elems:
+                raise ValueError(f"Element '{old_name}' not found in the model.")
+            if new_name in reserved_new_names and new_name != old_name:
+                raise ValueError(f"New element name '{new_name}' already exists in the model.")
+
+            element = self.elems[old_name]
+            old_type = element.__class__.__name__
+            if old_type not in supported_conversion:
+                raise ValueError(f"Unsupported linear element type '{old_type}'.")
+
+            expected_new_type = supported_conversion[old_type]
+            if new_name != expected_new_type and new_name != old_name:
+                # We only verify the class type, not the text of the name,
+                # because user may pass an arbitrary new element name.
+                pass
+
+            selected.append((old_name, new_name, element))
+
+        edge_to_mid_index: dict[tuple[int, int], int] = {}
+        node_count = self.nodes.shape[0]
+
+        # extract all edges
+        edges_all = []
+        for _, _, element in selected:
+            linear_edges_idx = self._get_linear_edges_for_element_type(element.__class__.__name__)
+            elems = element._elems
+            linear_edges = elems[:, linear_edges_idx].cpu().numpy()
+            edges_all.append(linear_edges.reshape(-1, 2))
+        edges_all = np.concatenate(edges_all, axis=0)
+        edges_all = np.sort(edges_all, axis=1)  # sort node indices in each edge to avoid duplicates like (1,2) and (2,1)
+        large_number = edges_all.max() + 1
+        edge_hash = edges_all[:, 0] * large_number + edges_all[:, 1]
+        _, unique_indices = np.unique(edge_hash, return_index=True)
+        unique_edges = edges_all[unique_indices]
+
+        # create the mapping from edge to midpoint node index
+        for i, (n1, n2) in enumerate(unique_edges):
+            edge_to_mid_index[(n1.item(), n2.item())] = node_count + i
+            edge_to_mid_index[(n2.item(), n1.item())] = node_count + i  # add both directions for easy lookup
+
+        # create mid nodes for unique edges
+        new_node_tensor = self.nodes[unique_edges].mean(dim=1)
+        self.nodes = torch.cat([self.nodes, new_node_tensor], dim=0)
+
+        for old_name, new_name, element in selected:
+            old_type = element.__class__.__name__
+            new_type = supported_conversion[old_type]
+            new_connectivity = self._build_quadratic_connectivity(old_type, element._elems, edge_to_mid_index)
+
+            new_element = elements.initialize_element(
+                element_type=new_type,
+                elems_index=element._elems_index,
+                elems=new_connectivity,
+                part=self,
+            )
+            new_element.density = element.density
+            if isinstance(element.materials, dict):
+                new_element.materials = dict(element.materials)
+            else:
+                new_element.materials = element.materials
+
+            if new_name == old_name:
+                self.delete_element(old_name)
+                self.add_element(new_element, name=new_name)
+            else:
+                self.delete_element(old_name)
+                self.add_element(new_element, name=new_name)
+
+        self.mid_pt_idxmap = edge_to_mid_index
+        self.mid_pt_idxmap_torch = torch.tensor([[n1, n2, mid_idx] for (n1, n2), mid_idx in edge_to_mid_index.items()], dtype=torch.long)
+
+        if if_update_setnodes:
+            for key in self.set_nodes.keys():
+                set_nodes = self.set_nodes[key]
+                new_set_nodes = set(set_nodes.tolist())
+                for n1, n2 in unique_edges:
+                    if n1 in new_set_nodes and n2 in new_set_nodes:
+                        mid_idx = edge_to_mid_index[(n1, n2)]
+                        new_set_nodes.add(mid_idx)
+                self.set_nodes[key] = np.sort(np.array(list(new_set_nodes)))
+
+    def _get_linear_edges_for_element_type(self, element_type: str) -> list[list[int]]:
+        if element_type == 'C3D4':
+            return [[0, 1], [1, 2], [0, 2], [0, 3], [1, 3], [2, 3]]
+        if element_type == 'C3D6':
+            return [[0, 1], [1, 2], [0, 2], [3, 4], [4, 5], [3, 5], [0, 3], [1, 4], [2, 5]]
+        if element_type in ['C3D8', 'C3D8R']:
+            return [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]]
+        raise ValueError(f"Unsupported element type '{element_type}' for edge extraction.")
+
+    def _build_quadratic_connectivity(self, element_type: str, elems: torch.Tensor, edge_to_mid_index: dict[tuple[int, int], int]) -> torch.Tensor:
+        def mid(i: int, j: int) -> torch.Tensor:
+            edge0 = elems[:, i].cpu().numpy()
+            edge1 = elems[:, j].cpu().numpy()
+            mid_idx = torch.tensor([edge_to_mid_index[(n1, n2)] for n1, n2 in zip(edge0, edge1)], dtype=torch.long, device=elems.device)
+            return mid_idx
+
+        if element_type == 'C3D4':
+            return torch.stack([
+                elems[:, 0], elems[:, 1], elems[:, 2], elems[:, 3],
+                mid(0, 1), mid(1, 2), mid(0, 2), mid(0, 3), mid(1, 3), mid(2, 3),
+            ], dim=1)
+
+        if element_type == 'C3D6':
+            return torch.stack([
+                elems[:, 0], elems[:, 1], elems[:, 2], elems[:, 3], elems[:, 4], elems[:, 5],
+                mid(0, 1), mid(1, 2), mid(0, 2), mid(3, 4), mid(4, 5), mid(3, 5),
+                mid(0, 3), mid(1, 4), mid(2, 5),
+            ], dim=1)
+
+        if element_type in ['C3D8', 'C3D8R']:
+            return torch.stack([
+                elems[:, 0], elems[:, 1], elems[:, 2], elems[:, 3],
+                elems[:, 4], elems[:, 5], elems[:, 6], elems[:, 7],
+                mid(0, 1), mid(1, 2), mid(2, 3), mid(3, 0),
+                mid(4, 5), mid(5, 6), mid(6, 7), mid(7, 4),
+                mid(0, 4), mid(1, 5), mid(2, 6), mid(3, 7),
+            ], dim=1)
+
+        raise ValueError(f"Unsupported element type '{element_type}' for quadratic connectivity.")
+
+    def extract_surfaces(self, name: str) -> list[BaseSurface]:
+        """        Get the triangles of a surface set by name.  
+        
+        Args:
+            name (str): Name of the surface set.
+            
+        Returns:
+            list[BaseSurface]: List of triangles in the surface set.
+            
+        Raises:
+            ValueError: If the surface set is not found.
+        """
+        surface = []
+        for surf_index in self.surfaces[name]:
+            elem_ind = surf_index[0]
+            surf_ind = surf_index[1]
+            for e in self.elems.values():
+                s_now = e.extract_surface(surf_ind, elem_ind)
+                surface += s_now
+        if len(surface) == 0:
+            raise ValueError(f"Surface {surf_ind} not found in the model.")
+        else:
+            return surfaces.merge_surfaces(surface)
+
+    def export_inp(self, file_path: str, part_name: str = 'Part-1') -> None:
+        """
+        Export the part to an Abaqus INP file.
+
+        The generated INP includes:
+        - node coordinates
+        - element connectivity for all elements in the part
+        - node sets from self.set_nodes
+        - surfaces from self.surfaces
+        """
+        with open(file_path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write('** Generated by torchfea Part.export_inp\n')
+            f.write(f'*Part, name={part_name}\n')
+
+            # Write nodes
+            f.write('*Node\n')
+            for node_id, node in enumerate(self.nodes, start=1):
+                coords = node.tolist()
+                f.write(f'{node_id}, {coords[0]}, {coords[1]}, {coords[2]}\n')
+
+            # Write elements grouped by Abaqus element type
+            elements_by_type: dict[str, list[BaseElement]] = {}
+            for element in self.elems.values():
+                elem_type = element.__class__.__name__
+                elements_by_type.setdefault(elem_type, []).append(element)
+
+            for elem_type, element_list in elements_by_type.items():
+                f.write(f'*Element, type={elem_type}\n')
+                for element in element_list:
+                    connectivity = element._elems
+                    element_ids = element._elems_index
+                    for elem_row, elem_id in zip(connectivity, element_ids):
+                        node_ids = [str(int(node_id.item()) + 1) for node_id in elem_row]
+                        f.write(f'{int(elem_id.item()) + 1}, ' + ', '.join(node_ids) + '\n')
+
+            # Write node sets
+            for set_name, node_list in self.set_nodes.items():
+                sorted_nodes = sorted(np.asarray(node_list, dtype=int).tolist())
+                if len(sorted_nodes) == 0:
+                    continue
+                f.write(f'*Nset, nset={set_name}\n')
+                for i in range(0, len(sorted_nodes), 10):
+                    line_nodes = sorted_nodes[i:i + 10]
+                    f.write(', '.join(str(node_id + 1) for node_id in line_nodes) + '\n')
+
+            # Write surfaces
+            for surface_name in self.surfaces.keys():
+                surface_items = self.surfaces[surface_name]
+                if len(surface_items) == 0:
+                    continue
+                f.write(f'*Surface, type=ELEMENT, name={surface_name}\n')
+                for elem_ids, surface_index in surface_items:
+                    if isinstance(elem_ids, np.ndarray):
+                        elem_ids_iter = elem_ids.ravel().tolist()
+                    elif isinstance(elem_ids, (list, tuple)):
+                        elem_ids_iter = list(elem_ids)
+                    else:
+                        elem_ids_iter = [int(elem_ids)]
+                    for elem_id in elem_ids_iter:
+                        f.write(f'{int(elem_id) + 1}, S{int(surface_index) + 1}\n')
+
+            f.write('*End Part\n')
+
+    # endregion
+
+    # region FEA
+
     def potential_energy(self, RGC: torch.Tensor) -> torch.Tensor:
         p = torch.tensor(0.0)
         for e in self.elems.values():
@@ -310,30 +565,6 @@ class Part(Serializable):
         R_indices = torch.cat(R_indices, dim=0)
         R_values = torch.cat(R_values, dim=0)
         return R_indices, R_values
-
-    def extract_surfaces(self, name: str) -> list[BaseSurface]:
-        """        Get the triangles of a surface set by name.  
-        
-        Args:
-            name (str): Name of the surface set.
-            
-        Returns:
-            list[BaseSurface]: List of triangles in the surface set.
-            
-        Raises:
-            ValueError: If the surface set is not found.
-        """
-        surface = []
-        for surf_index in self.surfaces[name]:
-            elem_ind = surf_index[0]
-            surf_ind = surf_index[1]
-            for e in self.elems.values():
-                s_now = e.extract_surface(surf_ind, elem_ind)
-                surface += s_now
-        if len(surface) == 0:
-            raise ValueError(f"Surface {surf_ind} not found in the model.")
-        else:
-            return surfaces.merge_surfaces(surface)
 
     # endregion
 
