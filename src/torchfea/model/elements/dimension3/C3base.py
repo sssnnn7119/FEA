@@ -19,9 +19,37 @@ class Element_3D(BaseElement):
         the number of surfaces of the element
     """
 
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+
+        cls.shape_function.append(torch.stack([
+                cls._shape_function_derivative(cls.shape_function[0], 0),
+                cls._shape_function_derivative(cls.shape_function[0], 1),
+                cls._shape_function_derivative(cls.shape_function[0], 2),
+            ],
+                        dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
+        
+        cls.shape_function.append(torch.zeros(
+            [3, 3, cls.shape_function[0].shape[0], cls.shape_function[0].shape[1]]))
+        for i in range(3):
+            for j in range(3):
+                cls.shape_function[2][i, j] = cls._shape_function_derivative(cls.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
+
     def __init__(self, elems_index: torch.Tensor,
                  elems: torch.Tensor) -> None:
         super().__init__(elems_index, elems)
+
+        self.shape_function_d2_gaussian: torch.Tensor
+        """
+            the second derivative of the shape function of each guassian point
+                [
+                    g: guassian point
+                    e: element
+                    i: derivative index 0
+                    j: derivative index 1
+                    a: a-th node
+                ]
+        """
 
         self.shape_function_d1_gaussian: torch.Tensor
         """
@@ -36,6 +64,12 @@ class Element_3D(BaseElement):
 
         self.shape_function_d0_gaussian: torch.Tensor
         """the shape functions of each guassian point [guassian, element, node]"""
+
+        self._dNW: torch.Tensor
+        """the derivative of the shape function multiplied by the guassian weight [guassian, element, derivative, node]"""
+
+        self._dNdNW: torch.Tensor
+        """the derivative of the shape function multiplied by the guassian weight [guassian, element, derivative, node, derivative, node]"""
 
 
     def initialize(self, nodes: torch.Tensor, *args, **kwargs) -> None:
@@ -89,55 +123,106 @@ class Element_3D(BaseElement):
 
     def _pre_load_gaussian(self, nodes: torch.Tensor):
         """
-        load the guassian points and its weight
+        Pre-compute shape function values & derivatives at Gaussian points.
+        Uses isoparametric mapping: ξ (reference) → x (physical).
+
+        Key steps:
+          1. N_a(ξ)   : shape function values at Gauss points
+          2. ∂N_a/∂ξ  : shape function gradients w.r.t. reference coords
+          3. J = ∂x/∂ξ : Jacobian of isoparametric mapping
+          4. ∂N_a/∂x = J^{-1} · ∂N_a/∂ξ : push-forward to physical gradients
+          5. dV = det(J) · dξ : integration weight in physical space
 
         Args:
-            nodes: [p, 3], the global coordinates of the element
+            nodes: [p, 3], global nodal coordinates x_i^a in physical space
         """
 
-        # get the coordinates of the guassian points
+        # —— Step 1: polynomial basis p(ξ) at Gaussian points ——
+        # pp[g, m]: m-th monomial term evaluated at Gauss point ξ_g
         pp = self._get_interpolation_coordinates(self.gaussian_coordinates)
 
-        # prepare the information for the FEA
-        shapeFun1 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, self.num_nodes_per_elem])
-        shapeFun0 = torch.zeros([self._num_gaussian, self._elems.shape[0], self.num_nodes_per_elem])
+        # ∂N_a/∂x_i [g, e, i, a],  N_a [g, e, a],  det(J) [g, e]
         det_Jacobian = torch.zeros([self._num_gaussian, self._elems.shape[0]])
 
         elem_now = self._elems
 
-        # process the shape function for the reduced order elements
-        shape0_now = self.shape_function[0]
-
-        # get the derivative of the shape function
-        shape1_now = torch.stack([
-                self._shape_function_derivative(shape0_now, 0),
-                self._shape_function_derivative(shape0_now, 1),
-                self._shape_function_derivative(shape0_now, 2),
-            ],
-                        dim=0)
-
-        # calculate the Jacobian at the guassian points
+        # —— Step 2: Jacobian J_{ij} = ∂x_i/∂ξ_j ——
+        # isoparametric mapping: x_i(ξ) = Σ_a N_a(ξ) · x_i^a
+        # => J_{ij} = Σ_a (∂N_a/∂ξ_j) · x_i^a
         Jacobian = torch.zeros([self._num_gaussian, elem_now.shape[0], 3, 3])
-        temp_ = torch.einsum('gb, mab->gma', pp, shape1_now)
+        shape1_gaussian = torch.einsum('gb, mab->gma', pp, self.shape_function[1])
+        # shape1_gaussian[g, m, a] = p_m(ξ_g) · C_{am}  (intermediate for ∂N_a/∂ξ)
         for i in range(self.num_nodes_per_elem):
-            Jacobian  += torch.einsum('gm,ei->geim', temp_[:, :, i],
+            # J_{geij} += ∂N_a/∂ξ_j|_{ξ_g} · x_i^a
+            Jacobian  += torch.einsum('gm,ei->geim', shape1_gaussian[:, :, i],
                                     nodes[elem_now[:, i]])
 
-        # Jacobian_Function
-        # J: g(Gaussian) * e * 3(ref) * 3(rest)
+        # —— Step 3: det(J) and inverse J^{-1} ——
         det_Jacobian = Jacobian.det()
         inv_Jacobian = Jacobian.inverse()
-        shapeFun1 = torch.einsum('gemi,gb,mab->geia', inv_Jacobian, pp,
-                                shape1_now)
-        
-        shapeFun0 = torch.einsum('ab, gb->ga', shape0_now,
+
+        # —— Step 4: push-forward ∂N_a/∂x = J^{-1} · ∂N_a/∂ξ ——
+        # ∂N_a/∂x_i = (J^{-1})_{ij} · ∂N_a/∂ξ_j
+        self.shape_function_d1_gaussian = torch.einsum('gemi,gma->geia', inv_Jacobian, shape1_gaussian)
+
+        # N_a(ξ) at Gaussian points: N_a = C_{am} · p_m(ξ_g)
+        self.shape_function_d0_gaussian = torch.einsum('ab, gb->ga', self.shape_function[0],
                                     pp).unsqueeze(1)
 
+        # —— Step 5: integration weight in physical space ——
+        # w_g = w_g^ref · det(J),  dΩ = det(J) dξ
         self.gaussian_weight = torch.einsum('ge, g->ge', det_Jacobian, self.gaussian_weight_ref)
-        self.shape_function_d1_gaussian = shapeFun1
-        self.shape_function_d0_gaussian = shapeFun0
+
+        # —— Step 6: second derivative of shape function at Gaussian points ——
+        # shape2_gaussian[g, i, j, a] = ∂²N_a/∂ξ_i∂ξ_j|_{ξ_g}
+        #   = C_{am} · ∂²p_m/∂ξ_i∂ξ_j|_{ξ_g}  =  p_m(ξ_g) · shape2_now[i, j, a, m]
+        shape2_gaussian = torch.einsum('gb,mnab->gmna', pp, self.shape_function[2])
+
+        # —— Step 7: second derivative of isoparametric mapping ——
+        # Jacobian2: H_{ijk} = ∂²x_i/∂ξ_j∂ξ_k = Σ_a (∂²N_a/∂ξ_j∂ξ_k) · x_i^a
+        #   second derivative of the isoparametric mapping
+        Jacobian2 = torch.zeros([self._num_gaussian, len(self._elems), 3, 3, 3])
+        for i in range(self.num_nodes_per_elem):
+            # Jacobian2[g, e, i, j, k] += ∂²N_a/∂ξ_j∂ξ_k|_{ξ_g} · x_i^a
+            Jacobian2 += torch.einsum('gmn,ei->geimn', shape2_gaussian[:, :, :, i],
+                                        nodes[elem_now[:, i]])
+
+        # inv_Jacobian2: ∂(J^{-1})_{ij}/∂x_k
+        #   differentiate J·J^{-1}=I  →  ∂J^{-1}/∂x = -J^{-1}·(∂J/∂x)·J^{-1}
+        #   in tensor index form:
+        #   ∂(J^{-1})_{ml}/∂x_k = -(J^{-1})_{mj}·(J^{-1})_{pk}·(J^{-1})_{nl}·(∂²x_p/∂ξ_j∂ξ_n)·(J^{-1})_{?}
+        #   simplified via chain rule → -J^{-1}·J^{-1}·J^{-1}·H
+        inv_Jacobian2 = -torch.einsum(
+            'gemj,gepk,genl,gejnp->gemlk', inv_Jacobian,
+            inv_Jacobian, inv_Jacobian, Jacobian2)
+
+        # —— Step 8: second derivative in physical space ∂²N_a/∂x_i∂x_j ——
+        # Chain rule for second derivatives:
+        #   ∂²N_a/∂x_i∂x_j = (J^{-1})_{im}·(J^{-1})_{jn}·(∂²N_a/∂ξ_m∂ξ_n)
+        #                   + ∂(J^{-1})_{im}/∂x_j · (∂N_a/∂ξ_m)
+        #
+        # Term 1 (from isoparametric mapping of Hessian):
+        #   [g, e, i, j, a] += (J^{-1})_{im}·(J^{-1})_{jn} · ∂²N_a/∂ξ_m∂ξ_n
+        # Term 2 (correction from the derivative of J^{-1}):
+        #   [g, e, i, j, a] += ∂(J^{-1})_{im}/∂x_j · ∂N_a/∂ξ_m
+        self.shape_function_d2_gaussian = torch.einsum(
+                'gemi, genj,gmna->geija',
+                inv_Jacobian, inv_Jacobian, shape2_gaussian) + torch.einsum(
+                    'gemij, gma->geija', inv_Jacobian2, shape1_gaussian)
+
+
+        self._dNW = torch.einsum('geia,ge->geia',
+                                self.shape_function_d1_gaussian,
+                                self.gaussian_weight)
         
-    def _shape_function_derivative(self, shape_function: torch.Tensor, ind: int):
+        self._dNdNW = torch.einsum('gelb,geia,ge->gelbia',
+                                  self.shape_function_d1_gaussian,
+                                  self.shape_function_d1_gaussian,
+                                  self.gaussian_weight)
+
+
+    @staticmethod
+    def _shape_function_derivative(shape_function: torch.Tensor, ind: int):
         """
         get the derivative of the shape function
 
@@ -319,9 +404,6 @@ class Element_3D(BaseElement):
         F[:, :, 1, 1] += 1
         F[:, :, 2, 2] += 1
 
-        J = F.det()
-        I1 = (F**2).sum([-1, -2]) * J**(-2 / 3)
-
         W = torch.zeros([self._num_gaussian, self._elems.shape[0]], device=F.device, dtype=F.dtype)
         for mat_now in self._iter_material_values():
             W = W + mat_now.strain_energy_density_C3(F=F,)
@@ -339,13 +421,12 @@ class Element_3D(BaseElement):
         if rotation_matrix is not None:
             U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
 
-        DG, I1, J, invF, s, C = self.components_Solid(U=U)
+        s, C = self.components_Solid(U=U)
         
         
         # calculate the element residual force
-        Relement = torch.einsum('geij,geia,ge->aje', s,
-                                self.shape_function_d1_gaussian,
-                                self.gaussian_weight)
+        Relement = torch.einsum('geij,geia->aje', s,
+                                self._dNW)
         
         if if_onlyforce:
             if rotation_matrix is not None:
@@ -354,11 +435,9 @@ class Element_3D(BaseElement):
                                 
         
         # calculate the element tangential stiffness matrix
-        Ka_element = torch.einsum('geijkl,gelb,geia,ge->ajbke',
+        Ka_element = torch.einsum('geijkl,gelbia->ajbke',
                                    C,
-                                  self.shape_function_d1_gaussian,
-                                  self.shape_function_d1_gaussian,
-                                  self.gaussian_weight)
+                                  self._dNdNW)
         
         if rotation_matrix is not None:
             Relement = torch.einsum('mj,aje->ame', rotation_matrix, Relement)
@@ -376,7 +455,7 @@ class Element_3D(BaseElement):
     def components_Solid(self, U: torch.Tensor):
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
-            Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
+            Ugrad += torch.einsum('gki,kI->gkIi',
                                          self.shape_function_d1_gaussian[:, :, :, i],
                                          U[self._elems[:, i]])
 
@@ -404,7 +483,7 @@ class Element_3D(BaseElement):
             s = s + s_now
             C = C + C_now
 
-        return F, I1, J, invF, s, C
+        return s, C
 
     def get_volumn(self, U: torch.Tensor = None):
         if U is None:

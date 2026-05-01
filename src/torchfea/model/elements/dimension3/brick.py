@@ -3,164 +3,63 @@ import torch
 from .C3base import Element_3D
 from .surfaces import initialize_surfaces
 
+# =============================================================================
+# C3D8 : 8-node linear brick, full integration (2×2×2)
+# =============================================================================
 class C3D8(Element_3D):
     """
     C3D8 - 8-node linear brick, full integration
     
-    Local coordinates:
-        origin: corner node 0
-        g, h, r: local coordinates aligned with element edges starting from node 0
-        All coordinates vary from -1 to 1
-
-    Node numbering follows Abaqus convention:
-        Bottom face (r=-1):
-            0: (-1, -1, -1) - corner
-            1: ( 1, -1, -1) - corner
-            2: ( 1,  1, -1) - corner
-            3: (-1,  1, -1) - corner
-        Top face (r=1):
-            4: (-1, -1,  1) - corner
-            5: ( 1, -1,  1) - corner
-            6: ( 1,  1,  1) - corner
-            7: (-1,  1,  1) - corner
+    Local coordinates: g, h, r ∈ [-1, 1]
+        origin: element center
+    
+    Node numbering (Abaqus convention):
+        Bottom face (r=-1):  0(-1,-1,-1)  1( 1,-1,-1)  2( 1, 1,-1)  3(-1, 1,-1)
+        Top face    (r= 1):  4(-1,-1, 1)  5( 1,-1, 1)  6( 1, 1, 1)  7(-1, 1, 1)
             
     Face definitions:
-        face0: 0321 (Bottom face, r=-1)
-        face1: 4567 (Top face, r=1)
-        face2: 0154 (Left face, g=-1)
-        face3: 1265 (Right face, g=1)
-        face4: 2376 (Front face, h=-1)
-        face5: 0473 (Back face, h=1)
+        face0: 0321 (Bottom, r=-1)    face1: 4567 (Top, r=1)
+        face2: 0154 (Left,  g=-1)    face3: 1265 (Right, g=1)
+        face4: 2376 (Front, h=-1)    face5: 0473 (Back, h=1)
 
     Shape functions:
-        N_i = 1/8 * (1 + g*g_i) * (1 + h*h_i) * (1 + r*r_i)
-        where (g_i, h_i, r_i) are the coordinates of the i-th node
+        N_i = 1/8 (1 + g·g_i)(1 + h·h_i)(1 + r·r_i)
     """
 
-    def __init__(self,
-                 elems: torch.Tensor = None,
-                 elems_index: torch.Tensor = None):
-        super().__init__(elems=elems, elems_index=elems_index)
-        self.num_surfaces = 6
+    # ---- class-level static attributes (same pattern as tetrahedral.py / wedge.py) ----
 
-    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
-        # Shape function coefficients
-        # Linear shape functions for 8-node brick element with coordinates (g,h,r)
-        # According to the provided function ordering:
-        # 0: constant, 1: g, 2: h, 3: r, 4: g*h, 5: h*r, 6: r*g, ..., 16: g*h*r
-        shape_funcs = torch.zeros((8, 20))
+    # Trilinear shape function coefficients in polynomial basis:
+    #   [1, g, h, r, g*h, h*r, r*g, ..., g*h*r]
+    shape_function = [
+        torch.tensor([
+            [ 0.125, -0.125, -0.125, -0.125,  0.125,  0.125,  0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -0.125,  0.,  0.,  0.],
+            [ 0.125,  0.125, -0.125, -0.125, -0.125,  0.125, -0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.125,  0.,  0.,  0.],
+            [ 0.125,  0.125,  0.125, -0.125,  0.125, -0.125, -0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -0.125,  0.,  0.,  0.],
+            [ 0.125, -0.125,  0.125, -0.125, -0.125, -0.125,  0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.125,  0.,  0.,  0.],
+            [ 0.125, -0.125, -0.125,  0.125,  0.125, -0.125, -0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.125,  0.,  0.,  0.],
+            [ 0.125,  0.125, -0.125,  0.125, -0.125, -0.125,  0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -0.125,  0.,  0.,  0.],
+            [ 0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.125,  0.,  0.,  0.],
+            [ 0.125, -0.125,  0.125,  0.125, -0.125,  0.125, -0.125,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -0.125,  0.,  0.,  0.],
+        ]),
+    ]
 
-        # Node 0: (-1, -1, -1)
-        shape_funcs[0, 0] = 1.0  # constant
-        shape_funcs[0, 1] = -1.0  # g
-        shape_funcs[0, 2] = -1.0  # h
-        shape_funcs[0, 3] = -1.0  # r
-        shape_funcs[0, 4] = 1.0  # g*h
-        shape_funcs[0, 5] = 1.0  # h*r
-        shape_funcs[0, 6] = 1.0  # r*g
-        shape_funcs[0, 16] = -1.0  # g*h*r
+    num_nodes_per_elem = 8
+    num_surfaces = 6
+    _num_gaussian = 8
 
-        # Node 1: (1, -1, -1)
-        shape_funcs[1, 0] = 1.0  # constant
-        shape_funcs[1, 1] = 1.0  # g
-        shape_funcs[1, 2] = -1.0  # h
-        shape_funcs[1, 3] = -1.0  # r
-        shape_funcs[1, 4] = -1.0  # g*h
-        shape_funcs[1, 5] = 1.0  # h*r
-        shape_funcs[1, 6] = -1.0  # r*g
-        shape_funcs[1, 16] = 1.0  # g*h*r
-
-        # Node 2: (1, 1, -1)
-        shape_funcs[2, 0] = 1.0  # constant
-        shape_funcs[2, 1] = 1.0  # g
-        shape_funcs[2, 2] = 1.0  # h
-        shape_funcs[2, 3] = -1.0  # r
-        shape_funcs[2, 4] = 1.0  # g*h
-        shape_funcs[2, 5] = -1.0  # h*r
-        shape_funcs[2, 6] = -1.0  # r*g
-        shape_funcs[2, 16] = -1.0  # g*h*r
-
-        # Node 3: (-1, 1, -1)
-        shape_funcs[3, 0] = 1.0  # constant
-        shape_funcs[3, 1] = -1.0  # g
-        shape_funcs[3, 2] = 1.0  # h
-        shape_funcs[3, 3] = -1.0  # r
-        shape_funcs[3, 4] = -1.0  # g*h
-        shape_funcs[3, 5] = -1.0  # h*r
-        shape_funcs[3, 6] = 1.0  # r*g
-        shape_funcs[3, 16] = 1.0  # g*h*r
-
-        # Node 4: (-1, -1, 1)
-        shape_funcs[4, 0] = 1.0  # constant
-        shape_funcs[4, 1] = -1.0  # g
-        shape_funcs[4, 2] = -1.0  # h
-        shape_funcs[4, 3] = 1.0  # r
-        shape_funcs[4, 4] = 1.0  # g*h
-        shape_funcs[4, 5] = -1.0  # h*r
-        shape_funcs[4, 6] = -1.0  # r*g
-        shape_funcs[4, 16] = 1.0  # g*h*r
-
-        # Node 5: (1, -1, 1)
-        shape_funcs[5, 0] = 1.0  # constant
-        shape_funcs[5, 1] = 1.0  # g
-        shape_funcs[5, 2] = -1.0  # h
-        shape_funcs[5, 3] = 1.0  # r
-        shape_funcs[5, 4] = -1.0  # g*h
-        shape_funcs[5, 5] = -1.0  # h*r
-        shape_funcs[5, 6] = 1.0  # r*g
-        shape_funcs[5, 16] = -1.0  # g*h*r
-
-        # Node 6: (1, 1, 1)
-        shape_funcs[6, 0] = 1.0  # constant
-        shape_funcs[6, 1] = 1.0  # g
-        shape_funcs[6, 2] = 1.0  # h
-        shape_funcs[6, 3] = 1.0  # r
-        shape_funcs[6, 4] = 1.0  # g*h
-        shape_funcs[6, 5] = 1.0  # h*r
-        shape_funcs[6, 6] = 1.0  # r*g
-        shape_funcs[6, 16] = 1.0  # g*h*r
-
-        # Node 7: (-1, 1, 1)
-        shape_funcs[7, 0] = 1.0  # constant
-        shape_funcs[7, 1] = -1.0  # g
-        shape_funcs[7, 2] = 1.0  # h
-        shape_funcs[7, 3] = 1.0  # r
-        shape_funcs[7, 4] = -1.0  # g*h
-        shape_funcs[7, 5] = 1.0  # h*r
-        shape_funcs[7, 6] = -1.0  # r*g
-        shape_funcs[7, 16] = -1.0  # g*h*r
-
-        # Scale by 1/8 for proper normalization of trilinear shape functions
-        shape_funcs = shape_funcs * 0.125
-
-        # Store shape functions and derivatives
-        self.shape_function = [shape_funcs]
-
-        self.num_nodes_per_elem = 8
-
-        # Full integration - 2x2x2 = 8 Gaussian points
-        self._num_gaussian = 8
-
-        # Standard weight for Gaussian quadrature (1 for each point)
-        self.gaussian_weight_ref = torch.ones(8)
-
-        # Gauss points for 2x2x2 integration
-        # Use Gauss-Legendre quadrature with points at ±1/sqrt(3)
-        p = 1.0 / np.sqrt(3.0)
-        p0 = torch.tensor([
-            [-p, -p, -p],  # Point 1
-            [p, -p, -p],  # Point 2
-            [p, p, -p],  # Point 3
-            [-p, p, -p],  # Point 4
-            [-p, -p, p],  # Point 5
-            [p, -p, p],  # Point 6
-            [p, p, p],  # Point 7
-            [-p, p, p]  # Point 8
-        ])
-
-        # Load the Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=nodes)
-        super().initialize(nodes, *args, **kwargs)
+    # Gauss-Legendre 2×2×2: weights = 1, points = ±1/√3
+    gaussian_weight_ref = torch.ones(8)
+    _p = 1.0 / np.sqrt(3.0)
+    gaussian_coordinates = torch.tensor([
+        [-_p, -_p, -_p],
+        [ _p, -_p, -_p],
+        [ _p,  _p, -_p],
+        [-_p,  _p, -_p],
+        [-_p, -_p,  _p],
+        [ _p, -_p,  _p],
+        [ _p,  _p,  _p],
+        [-_p,  _p,  _p],
+    ])
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         """
@@ -204,148 +103,15 @@ class C3D8R(C3D8):
     """
     C3D8R - 8-node linear brick, reduced integration with hourglass control
     
-    Local coordinates:
-        origin: corner node 0
-        g, h, r: local coordinates aligned with element edges starting from node 0
-        All coordinates vary from -1 to 1
-
-    Node numbering follows Abaqus convention:
-        Bottom face (r=-1):
-            0: (-1, -1, -1) - corner
-            1: ( 1, -1, -1) - corner
-            2: ( 1,  1, -1) - corner
-            3: (-1,  1, -1) - corner
-        Top face (r=1):
-            4: (-1, -1,  1) - corner
-            5: ( 1, -1,  1) - corner
-            6: ( 1,  1,  1) - corner
-            7: (-1,  1,  1) - corner
-            
-    Face definitions:
-        face0: 0321 (Bottom face, r=-1)
-        face1: 4567 (Top face, r=1)
-        face2: 0154 (Left face, g=-1)
-        face3: 1265 (Right face, g=1)
-        face4: 2376 (Front face, h=-1)
-        face5: 0473 (Back face, h=1)
-
-    Shape functions:
-        N_i = 1/8 * (1 + g*g_i) * (1 + h*h_i) * (1 + r*r_i)
-        where (g_i, h_i, r_i) are the coordinates of the i-th node
+    Uses the same trilinear shape functions as C3D8, but with 1-point
+    reduced integration (Gauss point at element center) plus hourglass
+    stabilization based on the Flanagan-Belytschko algorithm.
     """
 
-    def __init__(self,
-                 elems: torch.Tensor = None,
-                 elems_index: torch.Tensor = None):
-        super().__init__(elems=elems, elems_index=elems_index)
-        self._hg_alpha = 1.0  # Hourglass stabilization parameter
-
-    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
-        # Shape function coefficients
-        # Linear shape functions for 8-node brick element with coordinates (g,h,r)
-        # According to the provided function ordering:
-        # 0: constant, 1: g, 2: h, 3: r, 4: g*h, 5: h*r, 6: r*g, ..., 16: g*h*r
-        shape_funcs = torch.zeros((8, 20))
-
-        # Node 0: (-1, -1, -1)
-        shape_funcs[0, 0] = 1.0  # constant
-        shape_funcs[0, 1] = -1.0  # g
-        shape_funcs[0, 2] = -1.0  # h
-        shape_funcs[0, 3] = -1.0  # r
-        shape_funcs[0, 4] = 1.0  # g*h
-        shape_funcs[0, 5] = 1.0  # h*r
-        shape_funcs[0, 6] = 1.0  # r*g
-        shape_funcs[0, 16] = -1.0  # g*h*r
-
-        # Node 1: (1, -1, -1)
-        shape_funcs[1, 0] = 1.0  # constant
-        shape_funcs[1, 1] = 1.0  # g
-        shape_funcs[1, 2] = -1.0  # h
-        shape_funcs[1, 3] = -1.0  # r
-        shape_funcs[1, 4] = -1.0  # g*h
-        shape_funcs[1, 5] = 1.0  # h*r
-        shape_funcs[1, 6] = -1.0  # r*g
-        shape_funcs[1, 16] = 1.0  # g*h*r
-
-        # Node 2: (1, 1, -1)
-        shape_funcs[2, 0] = 1.0  # constant
-        shape_funcs[2, 1] = 1.0  # g
-        shape_funcs[2, 2] = 1.0  # h
-        shape_funcs[2, 3] = -1.0  # r
-        shape_funcs[2, 4] = 1.0  # g*h
-        shape_funcs[2, 5] = -1.0  # h*r
-        shape_funcs[2, 6] = -1.0  # r*g
-        shape_funcs[2, 16] = -1.0  # g*h*r
-
-        # Node 3: (-1, 1, -1)
-        shape_funcs[3, 0] = 1.0  # constant
-        shape_funcs[3, 1] = -1.0  # g
-        shape_funcs[3, 2] = 1.0  # h
-        shape_funcs[3, 3] = -1.0  # r
-        shape_funcs[3, 4] = -1.0  # g*h
-        shape_funcs[3, 5] = -1.0  # h*r
-        shape_funcs[3, 6] = 1.0  # r*g
-        shape_funcs[3, 16] = 1.0  # g*h*r
-
-        # Node 4: (-1, -1, 1)
-        shape_funcs[4, 0] = 1.0  # constant
-        shape_funcs[4, 1] = -1.0  # g
-        shape_funcs[4, 2] = -1.0  # h
-        shape_funcs[4, 3] = 1.0  # r
-        shape_funcs[4, 4] = 1.0  # g*h
-        shape_funcs[4, 5] = -1.0  # h*r
-        shape_funcs[4, 6] = -1.0  # r*g
-        shape_funcs[4, 16] = 1.0  # g*h*r
-
-        # Node 5: (1, -1, 1)
-        shape_funcs[5, 0] = 1.0  # constant
-        shape_funcs[5, 1] = 1.0  # g
-        shape_funcs[5, 2] = -1.0  # h
-        shape_funcs[5, 3] = 1.0  # r
-        shape_funcs[5, 4] = -1.0  # g*h
-        shape_funcs[5, 5] = -1.0  # h*r
-        shape_funcs[5, 6] = 1.0  # r*g
-        shape_funcs[5, 16] = -1.0  # g*h*r
-
-        # Node 6: (1, 1, 1)
-        shape_funcs[6, 0] = 1.0  # constant
-        shape_funcs[6, 1] = 1.0  # g
-        shape_funcs[6, 2] = 1.0  # h
-        shape_funcs[6, 3] = 1.0  # r
-        shape_funcs[6, 4] = 1.0  # g*h
-        shape_funcs[6, 5] = 1.0  # h*r
-        shape_funcs[6, 6] = 1.0  # r*g
-        shape_funcs[6, 16] = 1.0  # g*h*r
-
-        # Node 7: (-1, 1, 1)
-        shape_funcs[7, 0] = 1.0  # constant
-        shape_funcs[7, 1] = -1.0  # g
-        shape_funcs[7, 2] = 1.0  # h
-        shape_funcs[7, 3] = 1.0  # r
-        shape_funcs[7, 4] = -1.0  # g*h
-        shape_funcs[7, 5] = 1.0  # h*r
-        shape_funcs[7, 6] = -1.0  # r*g
-        shape_funcs[7, 16] = -1.0  # g*h*r
-
-        # Scale by 1/8 for proper normalization of trilinear shape functions
-        shape_funcs = shape_funcs * 0.125
-
-        # Store shape functions and derivatives
-        self.shape_function = [shape_funcs]
-
-        self.num_nodes_per_elem = 8
-        self._num_gaussian = 1  # Reduced integration - single point at element center
-        self.gaussian_weight = torch.tensor(
-            [8.0])  # Weight for single Gauss point (volume = 8)
-        # Gauss point at center of element (0, 0, 0) in local coordinates
-        p0 = torch.tensor([[0.0, 0.0, 0.0]])
-
-        # Initialize hourglass control parameters
-        self._initialize_hourglass_control()
-
-        # Load the Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=nodes)
-        super().initialize(nodes, *args, **kwargs)
+    # Override integration: single Gauss point at element center
+    _num_gaussian = 1
+    gaussian_weight_ref = torch.tensor([8.0])   # volume in ξ-space = 2³
+    gaussian_coordinates = torch.tensor([[0.0, 0.0, 0.0]])
 
     def _initialize_hourglass_control(self):
         """
@@ -577,138 +343,78 @@ class C3D8R(C3D8):
         return indices_force, Relement, indices_matrix, values
 
 
+# =============================================================================
+# C3D20 : 20-node quadratic serendipity brick, full integration (3×3×3)
+# =============================================================================
 class C3D20(Element_3D):
     """
-    C3D20 - 20-node quadratic brick element
+    C3D20 - 20-node quadratic brick element (serendipity)
     
-    # Local coordinates:
-        origin: center of brick element
-        g, h, r: local coordinates aligned with element edges
-        All coordinates vary from -1 to 1
+    Local coordinates: g, h, r ∈ [-1, 1], origin at element center.
     
-    # Node numbering follows Abaqus convention:
-        Bottom face (r=-1):
-            0: (-1, -1, -1) - corner
-            1: ( 1, -1, -1) - corner
-            2: ( 1,  1, -1) - corner
-            3: (-1,  1, -1) - corner
-            8: ( 0, -1, -1) - mid-edge
-            9: ( 1,  0, -1) - mid-edge
-           10: ( 0,  1, -1) - mid-edge
-           11: (-1,  0, -1) - mid-edge
-        Top face (r=1):
-            4: (-1, -1,  1) - corner
-            5: ( 1, -1,  1) - corner
-            6: ( 1,  1,  1) - corner
-            7: (-1,  1,  1) - corner
-           12: ( 0, -1,  1) - mid-edge
-           13: ( 1,  0,  1) - mid-edge
-           14: ( 0,  1,  1) - mid-edge
-           15: (-1,  0,  1) - mid-edge
-        Middle edges (r=0):
-           16: (-1, -1,  0) - mid-edge
-           17: ( 1, -1,  0) - mid-edge
-           18: ( 1,  1,  0) - mid-edge
-           19: (-1,  1,  0) - mid-edge
-            
-    # Face definitions:
-        face0: 0-3-2-1 (nodes 0,3,2,1,11,10,9,8) (Bottom face, r=-1)
-        face1: 4-5-6-7 (nodes 4,5,6,7,12,13,14,15) (Top face, r=1)
-        face2: 0-1-5-4 (nodes 0,1,5,4,8,17,12,16) (Front face, h=-1)
-        face3: 1-2-6-5 (nodes 1,2,6,5,9,18,13,17) (Right face, g=1)
-        face4: 2-3-7-6 (nodes 2,3,7,6,10,19,14,18) (Back face, h=-1)
-        face5: 0-4-7-3 (nodes 0,4,7,3,16,15,19,11) (Left face, g=1)   
-         
-    # Shape functions:
-        Quadratic serendipity shape functions for brick element
-        N_i = combination of 1, g, h, r, g^2, h^2, r^2, gh, hr, rg, ghr
-        Corner nodes use the product of quadratic terms
-        Mid-edge nodes use specific quadratic functions
+    Node numbering (Abaqus convention):
+        Bottom face (r=-1):  0-3-2-1  (corners),  11,10,9,8 (mid-edge)
+        Top face    (r= 1):  4-5-6-7  (corners),  12,13,14,15 (mid-edge)
+        Middle r=0  edges:   16(-1,-1,0)  17(1,-1,0)  18(1,1,0)  19(-1,1,0)
+    
+    Face definitions:
+        face0: 0,3,2,1,11,10,9,8   (Bottom, r=-1)
+        face1: 4,5,6,7,12,13,14,15 (Top, r=1)
+        face2: 0,1,5,4,8,17,12,16  (Front, h=-1)
+        face3: 1,2,6,5,9,18,13,17  (Right, g=1)
+        face4: 2,3,7,6,10,19,14,18 (Back, h=1)
+        face5: 0,4,7,3,16,15,19,11 (Left, g=-1)
     """
 
-    def __init__(self, elems: torch.Tensor = None, elems_index: torch.Tensor = None):
-        super().__init__(elems=elems, elems_index=elems_index)
-        self.num_surfaces = 6
+    # ---- class-level static attributes ----
+    # Quadratic serendipity shape function coefficients (20 nodes × 20 basis terms)
+    # Basis: [1, g, h, r, gh, hr, rg, g², h², r², g²h, gh², h²r, hr², r²g, rg², ghr, g²hr, gh²r, ghr²]
+    shape_function = [
+        torch.tensor([
+            [-0.25,  0.125,  0.125,  0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125, -0.125, -0.125, -0.125, -0.125, -0.125, -0.125, -0.125,  0.,     0.,     0.   ],
+            [-0.25, -0.125,  0.125,  0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125, -0.125,  0.125, -0.125, -0.125,  0.125, -0.125,  0.125,  0.,     0.,     0.   ],
+            [-0.25, -0.125, -0.125,  0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125,  0.125,  0.125, -0.125,  0.125,  0.125, -0.125, -0.125,  0.,     0.,     0.   ],
+            [-0.25,  0.125, -0.125,  0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125,  0.125, -0.125, -0.125,  0.125, -0.125, -0.125,  0.125,  0.,     0.,     0.   ],
+            [-0.25,  0.125,  0.125, -0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125, -0.125, -0.125,  0.125, -0.125, -0.125,  0.125,  0.125,  0.,     0.,     0.   ],
+            [-0.25, -0.125,  0.125, -0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125, -0.125,  0.125,  0.125, -0.125,  0.125,  0.125, -0.125,  0.,     0.,     0.   ],
+            [-0.25, -0.125, -0.125, -0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.125,  0.,     0.,     0.   ],
+            [-0.25,  0.125, -0.125, -0.125,  0.,     0.,     0.,     0.125,  0.125,  0.125,  0.125, -0.125,  0.125,  0.125, -0.125,  0.125, -0.125,  0.,     0.,     0.   ],
+            [ 0.25,  0.,    -0.25,  -0.25,   0.,     0.25,   0.,    -0.25,   0.,     0.,     0.25,   0.,     0.,     0.,     0.,     0.25,   0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.25,   0.,    -0.25,   0.,     0.,    -0.25,   0.,    -0.25,   0.,     0.,    -0.25,   0.25,   0.,     0.,     0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.,     0.25,  -0.25,   0.,    -0.25,   0.,    -0.25,   0.,     0.,    -0.25,   0.,     0.,     0.,     0.,     0.25,   0.,     0.,     0.,     0.   ],
+            [ 0.25, -0.25,   0.,    -0.25,   0.,     0.,     0.25,   0.,    -0.25,   0.,     0.,     0.25,   0.25,   0.,     0.,     0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.,    -0.25,   0.25,   0.,    -0.25,   0.,    -0.25,   0.,     0.,     0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.25,   0.,     0.25,   0.,     0.,     0.25,   0.,    -0.25,   0.,     0.,    -0.25,  -0.25,   0.,     0.,     0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.,     0.25,   0.25,   0.,     0.25,   0.,    -0.25,   0.,     0.,    -0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,     0.   ],
+            [ 0.25, -0.25,   0.,     0.25,   0.,     0.,    -0.25,   0.,    -0.25,   0.,     0.,     0.25,  -0.25,   0.,     0.,     0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25, -0.25,  -0.25,   0.,     0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,     0.25,   0.25,   0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.25,  -0.25,   0.,    -0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,     0.25,  -0.25,   0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25,  0.25,   0.25,   0.,     0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,    -0.25,  -0.25,   0.,     0.,     0.,     0.,     0.   ],
+            [ 0.25, -0.25,   0.25,   0.,    -0.25,   0.,     0.,     0.,     0.,    -0.25,   0.,     0.,     0.,    -0.25,   0.25,   0.,     0.,     0.,     0.,     0.   ],
+        ]),
+    ]
 
-    def initialize(self, nodes: torch.Tensor, *args, **kwargs):
-        # Shape function coefficients for 20-node brick element with coordinates (g,h,r)
-        # According to the provided function ordering in C3base.py:
-        # 0: constant, 1: g, 2: h, 3: r, 4: g*h, 5: h*r, 6: r*g, 
-        # 7: g^2, 8: h^2, 9: r^2, 10: g^2*h, 11: g*h^2, 12: h^2*r, 
-        # 13: h*r^2, 14: r^2*g, 15: r*g^2, 16: g*h*r, 17: g^2*h*r, 
-        # 18: g*h^2*r, 19: g*h*r^2
-          # Initialize shape functions for all nodes using standard C3D20 formulas
-        shape_funcs = torch.zeros((20, 20))  # 20 nodes, 20 coefficients (max)
+    num_nodes_per_elem = 20
+    num_surfaces = 6
+    _num_gaussian = 27   # 3×3×3
 
-        # Standard C3D20 shape functions in matrix form
-        # Based on the formulas provided:
-        # Corner nodes: N_i = -(1/8)(1±g)(1±h)(1±r)(2±g±h±r)
-        # Mid-edge nodes: N_i = (1/4)(1-g²)(1±h)(1±r) or similar for other directions
-        
-        # Define the shape function coefficients directly as a matrix
-        # Each row corresponds to one shape function, each column to a polynomial term
-        # 0: const, 1: g, 2: h, 3: r, 4: gh, 5: hr, 6: rg, 7: g², 8: h², 9: r²,
-        # 10: g²h, 11: gh², 12: h²r, 13: hr², 14: r²g, 15: rg², 16: ghr, 17: g²hr, 18: gh²r, 19: ghr²
-        
-        # Initialize the coefficient matrix directly
-        shape_funcs = torch.tensor([
-            [ -0.2500,   0.1250,   0.1250,   0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,  -0.1250,  -0.1250,  -0.1250,  -0.1250,  -0.1250,  -0.1250,  -0.1250,   0.0000,   0.0000,   0.0000],  # 节点 1
-            [ -0.2500,  -0.1250,   0.1250,   0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,  -0.1250,  -0.1250,   0.1250,  -0.1250,   0.1250,   0.0000,   0.0000,   0.0000],  # 节点 2
-            [ -0.2500,  -0.1250,  -0.1250,   0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,   0.1250,  -0.1250,  -0.1250,   0.0000,   0.0000,   0.0000],  # 节点 3
-            [ -0.2500,   0.1250,  -0.1250,   0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,   0.1250,  -0.1250,  -0.1250,   0.1250,  -0.1250,  -0.1250,   0.1250,   0.0000,   0.0000,   0.0000],  # 节点 4
-            [ -0.2500,   0.1250,   0.1250,  -0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,  -0.1250,  -0.1250,   0.1250,  -0.1250,  -0.1250,   0.1250,   0.1250,   0.0000,   0.0000,   0.0000],  # 节点 5
-            [ -0.2500,  -0.1250,   0.1250,  -0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,   0.1250,  -0.1250,   0.0000,   0.0000,   0.0000],  # 节点 6
-            [ -0.2500,  -0.1250,  -0.1250,  -0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.1250,   0.0000,   0.0000,   0.0000],  # 节点 7
-            [ -0.2500,   0.1250,  -0.1250,  -0.1250,   0.0000,   0.0000,   0.0000,   0.1250,   0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,   0.1250,  -0.1250,   0.1250,  -0.1250,   0.0000,   0.0000,   0.0000],  # 节点 8
-            [  0.2500,   0.0000,  -0.2500,  -0.2500,   0.0000,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 9
-            [  0.2500,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,  -0.2500,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 10
-            [  0.2500,   0.0000,   0.2500,  -0.2500,   0.0000,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 11
-            [  0.2500,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.2500,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 12
-            [  0.2500,   0.0000,  -0.2500,   0.2500,   0.0000,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 13
-            [  0.2500,   0.2500,   0.0000,   0.2500,   0.0000,   0.0000,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,  -0.2500,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 14
-            [  0.2500,   0.0000,   0.2500,   0.2500,   0.0000,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 15
-            [  0.2500,  -0.2500,   0.0000,   0.2500,   0.0000,   0.0000,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.2500,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 16
-            [  0.2500,  -0.2500,  -0.2500,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.2500,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 17
-            [  0.2500,   0.2500,  -0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.2500,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 18
-            [  0.2500,   0.2500,   0.2500,   0.0000,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,  -0.2500,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000],  # 节点 19
-            [  0.2500,  -0.2500,   0.2500,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,   0.0000,  -0.2500,   0.0000,   0.0000,   0.0000,  -0.2500,   0.2500,   0.0000,   0.0000,   0.0000,   0.0000,   0.0000]  # 节点 20
-        ])
+    # Gauss-Legendre 3×3×3 weights (product of 1D weights)
+    _w1d = torch.tensor([5.0/9.0, 8.0/9.0, 5.0/9.0])
+    _x1d = torch.tensor([-np.sqrt(3.0/5.0), 0.0, np.sqrt(3.0/5.0)])
+    gaussian_weight_ref = torch.ones(27)  # filled below
+    gaussian_coordinates = torch.zeros([27, 3])  # filled below
 
-        # Store shape function coefficients
-        self.shape_function = [shape_funcs]
-        self.num_nodes_per_elem = 20
-        
-        # Gaussian integration points
-        # Using 3x3x3 Gauss quadrature for full integration
-        self._num_gaussian = 27  # 3x3x3 points
-
-        
-        # Gaussian weights (3x3x3)
-        weight_1d = torch.tensor([5.0/9.0, 8.0/9.0, 5.0/9.0])
-        weights = torch.zeros(27)
-        idx = 0
-        for i in range(3):
-            for j in range(3):
-                for k in range(3):
-                    weights[idx] = weight_1d[i] * weight_1d[j] * weight_1d[k]
-                    idx += 1
-        self.gaussian_weight = weights
-        
-        # Gaussian points in natural coordinates
-        points_1d = torch.tensor([-np.sqrt(3.0/5.0), 0.0, np.sqrt(3.0/5.0)])
-        p0 = torch.zeros((27, 3))
-        idx = 0
-        for i in range(3):
-            for j in range(3):
-                for k in range(3):
-                    p0[idx, 0] = points_1d[i]  # g
-                    p0[idx, 1] = points_1d[j]  # h
-                    p0[idx, 2] = points_1d[k]  # r
-                    idx += 1
-        
-        # Load Gaussian points for integration
-        self._pre_load_gaussian(p0, nodes=nodes)
-        super().initialize(nodes, *args, **kwargs)
+    # Pre-compute the 3D Gauss points and weights
+    _idx = 0
+    for _i in range(3):
+        for _j in range(3):
+            for _k in range(3):
+                gaussian_weight_ref[_idx] = _w1d[_i] * _w1d[_j] * _w1d[_k]
+                gaussian_coordinates[_idx, 0] = _x1d[_i]
+                gaussian_coordinates[_idx, 1] = _x1d[_j]
+                gaussian_coordinates[_idx, 2] = _x1d[_k]
+                _idx += 1
+    del _idx, _i, _j, _k, _w1d, _x1d   # cleanup temporary loop variables
 
     def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
         """
