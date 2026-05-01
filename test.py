@@ -1,2 +1,3 @@
+import torch
 
-func: Callable[..., torch.Tensor],
+print(torch.cuda.device_count())

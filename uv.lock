@@ -1072,7 +1072,7 @@ wheels = [
 
 [[package]]
 name = "torchfea"
-version = "1.0.8"
+version = "1.0.11"
 source = { virtual = "." }
 dependencies = [
     { name = "pandas" },
