@@ -1,3 +1,8 @@
+---
+title: "有限元等参变换与数值积分理论详解"
+author: "宋泽楠"
+geometry: margin=1.5cm
+---
 # 有限元等参变换与数值积分理论
 
 本文档阐述三维固体力学有限元中等参变换（Isoparametric Mapping）与高斯数值积分（Gaussian Quadrature）的数学理论，对应代码实现位于 `src/torchfea/model/elements/dimension3/C3base.py` 的 `_pre_load_gaussian` 方法。
@@ -13,10 +18,10 @@
 - [5. 形函数物理梯度：Push-Forward](#5-形函数物理梯度push-forward)
 - [6. 数值积分：高斯求积法](#6-数值积分高斯求积法)
 - [7. 二阶导数（高级用途）](#7-二阶导数高级用途)
-    - [7.1 形函数对参考坐标的二阶导数](#71-形函数对参考坐标的二阶导数)
-    - [7.2 映射的二阶导数（Hessian of Mapping）](#72-映射的二阶导数hessian-of-mapping)
-    - [7.3 Jacobian 逆矩阵的导数](#73-jacobian-逆矩阵的导数)
-    - [7.4 形函数的物理空间二阶导数](#74-形函数的物理空间二阶导数)
+  - [7.1 形函数对参考坐标的二阶导数](#71-形函数对参考坐标的二阶导数)
+  - [7.2 映射的二阶导数（Hessian of Mapping）](#72-映射的二阶导数hessian-of-mapping)
+  - [7.3 Jacobian 逆矩阵的导数](#73-jacobian-逆矩阵的导数)
+  - [7.4 形函数的物理空间二阶导数](#74-形函数的物理空间二阶导数)
 - [8. 代码中的张量索引约定](#8-代码中的张量索引约定)
 - [9. 完整计算流程图](#9-完整计算流程图)
 
@@ -44,11 +49,11 @@ $$
 
 参考空间是归一化的参数空间，单元在此空间中具有规则的几何形状。例如：
 
-| 单元类型 | 参考域 |
-|---------|--------|
-| 六面体 (C3D8, C3D20) | 正方体 $[-1,1]^3$ |
-| 四面体 (C3D4, C3D10) | 标准四面体 |
-| 楔形 (C3D6, C3D15) | 标准楔形 |
+| 单元类型             | 参考域             |
+| -------------------- | ------------------ |
+| 六面体 (C3D8, C3D20) | 正方体$[-1,1]^3$ |
+| 四面体 (C3D4, C3D10) | 标准四面体         |
+| 楔形 (C3D6, C3D15)   | 标准楔形           |
 
 ### 2.2 物理空间 $\mathbf{x}$
 
@@ -239,9 +244,9 @@ self.gaussian_weight[g, e] = det(J)|_{g,e} · w_g^{ref}
 
 ### 6.5 减缩积分与完全积分
 
-| 积分方案 | 说明 |
-|---------|------|
-| **完全积分 (Full Integration)** | 使用足够多的高斯点精确积分多项式刚度矩阵 |
+| 积分方案                                 | 说明                                         |
+| ---------------------------------------- | -------------------------------------------- |
+| **完全积分 (Full Integration)**    | 使用足够多的高斯点精确积分多项式刚度矩阵     |
 | **减缩积分 (Reduced Integration)** | 使用较少的高斯点，避免剪切闭锁，但需沙漏控制 |
 
 ---
@@ -385,37 +390,37 @@ self.shape_function_d2_gaussian = term1 + term2
 
 在 `_pre_load_gaussian` 方法及整个模块中，使用以下索引字母约定：
 
-| 索引 | 含义 | 范围 |
-|------|------|------|
-| `g` | 高斯积分点 (Gauss point) | $1 \sim n_g$ |
-| `e` | 单元 (Element) | $1 \sim n_e$ |
-| `a, b` | 单元节点 (Node) | $1 \sim n_{\text{node}}$ |
-| `i, j, k` | 物理空间坐标分量 $x_i$ | $1 \sim 3$ |
-| `m, n, p` | 多项式基索引 / 参考坐标分量 $\xi$ | 视阶数而定 / $1 \sim 3$ |
+| 索引        | 含义                               | 范围                       |
+| ----------- | ---------------------------------- | -------------------------- |
+| `g`       | 高斯积分点 (Gauss point)           | $1 \sim n_g$             |
+| `e`       | 单元 (Element)                     | $1 \sim n_e$             |
+| `a, b`    | 单元节点 (Node)                    | $1 \sim n_{\text{node}}$ |
+| `i, j, k` | 物理空间坐标分量$x_i$            | $1 \sim 3$               |
+| `m, n, p` | 多项式基索引 / 参考坐标分量$\xi$ | 视阶数而定 /$1 \sim 3$   |
 
 ### 张量形状速查
 
-| 张量 | 形状 | 含义 |
-|------|------|------|
-| `pp` | `[g, m]` | 多项式基在 $\boldsymbol{\xi}_g$ 处的值 |
-| `shape0_now` | `[a, m]` | 形函数的多项式基系数 $C_{am}$ |
-| `shape1_now` | `[i, a, m]` | $\partial N_a/\partial \xi_i$ 的多项式系数 |
-| `Jacobian` | `[g, e, i, j]` | $J_{ij} = \partial x_i/\partial \xi_j$ |
-| `inv_Jacobian` | `[g, e, i, j]` | $(J^{-1})_{ij}$ |
-| `shapeFun1` | `[g, e, i, a]` | $\partial N_a/\partial x_i$ 在高斯点处的值 |
-| `shapeFun0` | `[g, e, a]` | $N_a$ 在高斯点处的值 |
-| `gaussian_weight` | `[g, e]` | 物理空间积分权重 $w_g$ |
-| `Jacobian2` | `[g, e, i, m, n]` | $\partial^2 x_i/\partial \xi_m\partial \xi_n$ |
-| `shape2_gaussian` | `[g, i, j, a]` | $\partial^2 N_a/\partial \xi_i\partial \xi_j$ 在高斯点处的值 |
-| `inv_Jacobian2` | `[g, e, i, j, k]` | $\partial (J^{-1})_{ij}/\partial x_k$ |
-| `shape_function_d2_gaussian` | `[g, e, i, j, a]` | $\partial^2 N_a/\partial x_i\partial x_j$ 在高斯点处的值 |
+| 张量                           | 形状                | 含义                                                           |
+| ------------------------------ | ------------------- | -------------------------------------------------------------- |
+| `pp`                         | `[g, m]`          | 多项式基在$\boldsymbol{\xi}_g$ 处的值                        |
+| `shape0_now`                 | `[a, m]`          | 形函数的多项式基系数$C_{am}$                                 |
+| `shape1_now`                 | `[i, a, m]`       | $\partial N_a/\partial \xi_i$ 的多项式系数                   |
+| `Jacobian`                   | `[g, e, i, j]`    | $J_{ij} = \partial x_i/\partial \xi_j$                       |
+| `inv_Jacobian`               | `[g, e, i, j]`    | $(J^{-1})_{ij}$                                              |
+| `shapeFun1`                  | `[g, e, i, a]`    | $\partial N_a/\partial x_i$ 在高斯点处的值                   |
+| `shapeFun0`                  | `[g, e, a]`       | $N_a$ 在高斯点处的值                                         |
+| `gaussian_weight`            | `[g, e]`          | 物理空间积分权重$w_g$                                        |
+| `Jacobian2`                  | `[g, e, i, m, n]` | $\partial^2 x_i/\partial \xi_m\partial \xi_n$                |
+| `shape2_gaussian`            | `[g, i, j, a]`    | $\partial^2 N_a/\partial \xi_i\partial \xi_j$ 在高斯点处的值 |
+| `inv_Jacobian2`              | `[g, e, i, j, k]` | $\partial (J^{-1})_{ij}/\partial x_k$                        |
+| `shape_function_d2_gaussian` | `[g, e, i, j, a]` | $\partial^2 N_a/\partial x_i\partial x_j$ 在高斯点处的值     |
 
 ---
 
 ## 9. 完整计算流程图
 
 ```mermaid
-flowchart TD
+graph TD
     A["输入: 节点坐标 x_i^a<br/>高斯点坐标 ξ_g"] --> B["Step 1: 计算多项式基<br/>pp[g,m] = p_m(ξ_g)"]
     B --> C["Step 2: 形函数系数<br/>shape0_now[a,m] = C_{am}"]
     C --> D["Step 3: 形函数 ξ-导数<br/>shape1_now[i,a,m] = ∂N_a/∂ξ_i"]
@@ -431,9 +436,6 @@ flowchart TD
     L --> M["Step 11: 物理二阶导数<br/>∂²N_a/∂x_i∂x_j<br/>= J⁻¹·J⁻¹·∂²N/∂ξ²<br/>+ ∂J⁻¹/∂x · ∂N/∂ξ"]
     M --> N["输出:<br/>shape_function_d2_gaussian"]
 
-    style A fill:#e1f5fe
-    style I fill:#c8e6c9
-    style N fill:#c8e6c9
 ```
 
 ---
