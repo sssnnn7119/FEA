@@ -20,7 +20,10 @@ def initialize_element(element_type: str,
     Returns:
         Element_Base: An instance of the specified element type.
     """
-    element_class = BaseElement._subclasses.get(element_type)
+    class_names = [item.split('.')[-1] for item in BaseElement._subclasses.keys()]
+
+
+    element_class = list(BaseElement._subclasses.values())[np.where(np.array(class_names) == element_type)[0][0]] if element_type in class_names else None
     
     if element_class is None:
         raise ValueError(f"Element type '{element_type}' is not recognized.")

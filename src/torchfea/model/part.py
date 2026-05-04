@@ -527,13 +527,13 @@ class Part(Serializable):
 
     # region FEA
 
-    def potential_energy(self, RGC: torch.Tensor) -> torch.Tensor:
+    def potential_energy(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor = None) -> torch.Tensor:
         p = torch.tensor(0.0)
         for e in self.elems.values():
-            p = p + e.potential_Energy(RGC)
+            p = p + e.potential_Energy(RGC, rotation_matrix=rotation_matrix)
         return p
 
-    def structural_stiffness(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor) -> list[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def structural_stiffness(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor = None) -> list[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         
         K_values = []
         K_indices = []
@@ -553,7 +553,7 @@ class Part(Serializable):
         R_values = torch.cat(R_values, dim=0)
         return R_indices, R_values, K_indices, K_values
     
-    def structural_force(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor) -> list[torch.Tensor, torch.Tensor]:
+    def structural_force(self, RGC: torch.Tensor, rotation_matrix: torch.Tensor = None) -> list[torch.Tensor, torch.Tensor]:
         
         R_values = []
         R_indices = []
@@ -570,7 +570,7 @@ class Part(Serializable):
 
     # region dynamic
 
-    def get_mass_matrix(self, rotation_matrix: torch.Tensor):
+    def get_mass_matrix(self, rotation_matrix: torch.Tensor = None):
         M_indices = []
         M_values = []
         for e in self.elems.values():
@@ -617,16 +617,15 @@ class Instance(BaseObj):
         self.external_surface: str = external_surface
         """the name of the external surface for visualization"""
 
-    @property
-    def rotation_matrix(self) -> torch.Tensor:
         theta = torch.norm(self._rotation)
         if theta == 0:
-            return torch.eye(3)
+            self.rotation_matrix = None
         else:
             r = self._rotation / theta
             r = r.view(3, 1)
             R = torch.cos(theta) * torch.eye(3) + (1 - torch.cos(theta)) * (r @ r.t()) + torch.sin(theta) * torch.tensor([[0, -r[2, 0], r[1, 0]], [r[2, 0], 0, -r[0, 0]], [-r[1, 0], r[0, 0], 0]])
-            return R
+            self.rotation_matrix = R
+
 
     @property
     def elems(self) -> dict[str, BaseElement]:
@@ -690,15 +689,15 @@ class Instance(BaseObj):
         return RGC_out
     
     def potential_energy(self, RGC: list[torch.Tensor]) -> torch.Tensor:
-        return self.part.potential_energy(self._transform(rotation_vector=-self._rotation, vector0=RGC[self._RGC_index]))
+        return self.part.potential_energy(RGC=RGC[self._RGC_index], rotation_matrix=self.rotation_matrix)
     
     def structural_stiffness(self, RGC: list[torch.Tensor], if_onlyforce: bool = False, *args, **kwargs) -> list[torch.Tensor]:
 
         if if_onlyforce:
-            R_indices, R_values = self.part.structural_force(RGC[self._RGC_index], self.rotation_matrix)
+            R_indices, R_values = self.part.structural_force(RGC[self._RGC_index], rotation_matrix=self.rotation_matrix)
             return R_indices + self._index_start, R_values
         
-        R_indices, R_values, K_indices, K_values = self.part.structural_stiffness(RGC[self._RGC_index], self.rotation_matrix)
+        R_indices, R_values, K_indices, K_values = self.part.structural_stiffness(RGC[self._RGC_index], rotation_matrix=self.rotation_matrix)
         return R_indices + self._index_start, R_values, K_indices + self._index_start, K_values
     
     def extract_surfaces(self, name: str) -> list[BaseSurface]:

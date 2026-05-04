@@ -50,7 +50,10 @@ t1 = time.time()
 fe.initialize()
 with tempfile.TemporaryDirectory(prefix='torchfea_cache_') as temp_dir:
     dir_path = os.path.join(temp_dir, 'model_cache.npz')
-    fe.save_model(dir_path)
+    fe.save_model(dir_path, True)
+
+    print(f'Model saved to {dir_path}')
+    print(f'Model size: {os.path.getsize(dir_path) / 1e6:.2f} MB')
     fe_new = torchfea.load_model(dir_path)
 
 result = fe_new.solve(tol_error=0.01)

@@ -96,20 +96,24 @@ class FEAController(Serializable):
                 else:
                     self._change_device_recursive(v, device, visited)
 
-    def save_model(self, path: str) -> None:
+    def save_model(self, path: str, if_save_source_code: bool = False) -> None:
         """
         Save the finite element model to a file.
 
         Args:
             path (str): The file path to save the model.
+            if_save_source_code (bool): Whether to save the source code of subclasses.
 
         Returns:
             None
         """
         serialized_data = self._serialize()
-        np.savez_compressed(path, data = serialized_data)
+        if if_save_source_code: 
+            np.savez_compressed(path, data = serialized_data, source_code = self._subclass_source_code)
+        else:
+            np.savez_compressed(path, data = serialized_data)
 
-def load_model(path: str):
+def load_model(path: str) -> FEAController:
     """
     Load a finite element model from a file.
 

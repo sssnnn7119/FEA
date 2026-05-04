@@ -22,18 +22,20 @@ class Element_3D(BaseElement):
     def __init_subclass__(cls):
         super().__init_subclass__()
 
-        cls.shape_function.append(torch.stack([
-                cls._shape_function_derivative(cls.shape_function[0], 0),
-                cls._shape_function_derivative(cls.shape_function[0], 1),
-                cls._shape_function_derivative(cls.shape_function[0], 2),
-            ],
-                        dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
-        
-        cls.shape_function.append(torch.zeros(
-            [3, 3, cls.shape_function[0].shape[0], cls.shape_function[0].shape[1]]))
-        for i in range(3):
-            for j in range(3):
-                cls.shape_function[2][i, j] = cls._shape_function_derivative(cls.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
+        if hasattr(cls, 'shape_function'):
+            cls.shape_function[0] = cls.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())
+            cls.shape_function.append(torch.stack([
+                    cls._shape_function_derivative(cls.shape_function[0], 0),
+                    cls._shape_function_derivative(cls.shape_function[0], 1),
+                    cls._shape_function_derivative(cls.shape_function[0], 2),
+                ],
+                            dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
+            
+            cls.shape_function.append(torch.zeros(
+                [3, 3, cls.shape_function[0].shape[0], cls.shape_function[0].shape[1]]))
+            for i in range(3):
+                for j in range(3):
+                    cls.shape_function[2][i, j] = cls._shape_function_derivative(cls.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
 
     def __init__(self, elems_index: torch.Tensor,
                  elems: torch.Tensor) -> None:
@@ -341,6 +343,15 @@ class Element_3D(BaseElement):
         return pp
 
     def get_gaussian_points(self, nodes: torch.Tensor):
+        """
+        Get the physical coordinates of the Gaussian points for the element.
+
+        Args:
+            nodes: [p, 3], global nodal coordinates x_i^a in physical space
+
+        Returns:
+            torch.Tensor: [num_gaussian, num_elem, 3], physical coordinates of Gaussian points for each element
+        """
         pp = self._get_interpolation_coordinates(self.gaussian_coordinates)
         shapeFun0 = torch.einsum('ab, gb->ga', self.shape_function[0],
                                       pp)
@@ -390,9 +401,14 @@ class Element_3D(BaseElement):
 
         return self._indices_matrix, values
         
-    def potential_Energy(self, RGC: torch.Tensor):
+    def potential_Energy(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
         
         U = RGC
+
+        if rotation_matrix is not None:
+            U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
+
+
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
             Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
@@ -413,43 +429,68 @@ class Element_3D(BaseElement):
             self.gaussian_weight)
 
         return Ea
+    
+    def _get_EpdUe_EpdUe2(self, U: torch.Tensor, if_onlyforce: bool = False):
+        """
+        Calculate the first and second derivatives of the potential energy with respect to the nodal displacements U.
+        Which are the residual force and the stiffness matrix of the element, respectively.
 
-    def structural_Force(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None, if_onlyforce: bool = False, *args, **kwargs):
+        Args:
+            U: [num_nodes, 3], the nodal displacements
+            if_onlyforce: whether to only calculate the residual force, if True, only return the residual force, otherwise return both the residual force and the stiffness matrix
         
-        U = RGC
+        Returns:
+            If if_onlyforce is True, returns the residual force as a flattened tensor.
+            Otherwise, returns a tuple of the residual force and the stiffness matrix.
 
-        if rotation_matrix is not None:
-            U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
-
+        Relement = ∂Ea/∂U with shape [num_nodes_per_elem, 3, num_elems]
+        Ka_element = ∂²Ea/∂U² with shape [num_nodes_per_elem, 3, num_nodes_per_elem, 3, num_elems]
+        """
+        
         s, C = self.components_Solid(U=U)
-        
-        
+
         # calculate the element residual force
         Relement = torch.einsum('geij,geia->aje', s,
                                 self._dNW)
         
         if if_onlyforce:
-            if rotation_matrix is not None:
-                Relement = torch.einsum('mj,aje->ame', rotation_matrix, Relement)
-            return self._indices_force, Relement.flatten()
-                                
+            return Relement
         
         # calculate the element tangential stiffness matrix
         Ka_element = torch.einsum('geijkl,gelbia->ajbke',
                                    C,
                                   self._dNdNW)
         
+        return Relement, Ka_element
+        
+
+    def structural_Force(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None, if_onlyforce: bool = False):
+        
+        U = RGC
+
         if rotation_matrix is not None:
-            Relement = torch.einsum('mj,aje->ame', rotation_matrix, Relement)
-            Ka_element = torch.einsum('mj,ajbke,nk->ambne', rotation_matrix, Ka_element, rotation_matrix)
+            U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
+
+        result = self._get_EpdUe_EpdUe2(U=U, if_onlyforce=if_onlyforce)
+        
+        
+        if if_onlyforce:
+            Relement = result
+            if rotation_matrix is not None:
+                Relement = torch.einsum('mj,aje->ame', rotation_matrix, Relement)
+            return self._indices_force, Relement.flatten()
+
+        
+        if rotation_matrix is not None:
+            Relement = torch.einsum('mj,aje->ame', rotation_matrix, result[0])
+            Ka_element = torch.einsum('mj,ajbke,nk->ambne', rotation_matrix, result[1], rotation_matrix)
+        else:
+            Relement = result[0]
+            Ka_element = result[1]
         
         # assembly the stiffness matrix and residual force                 
-        
-        ## stiffness matrix
-
         values = torch.zeros([self._indices_matrix.shape[1]]).scatter_add(0, self._index_matrix_coalesce, Ka_element.flatten())
         
-
         return self._indices_force, Relement.flatten(), self._indices_matrix, values
 
     def components_Solid(self, U: torch.Tensor):

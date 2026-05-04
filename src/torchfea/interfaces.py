@@ -1,7 +1,9 @@
-import stat
+
+import inspect
 
 import numpy as np
 import torch
+
 
 class Serializable():
 
@@ -11,11 +13,36 @@ class Serializable():
     _subclasses: dict[str, 'Serializable'] = {}
     """Registry of subclasses for factory method."""
 
+    _subclass_source_code: dict[str, str] = {}
+    """Registry of subclass source code for debugging and reproducibility."""
+
     def __init_subclass__(cls):
         """Register subclasses in the class registry for factory method."""
-        cls._subclasses[cls.__name__] = cls
+        cls._subclasses[cls._get_obj_name()] = cls
+        cls._subclass_source_code[cls._get_obj_name()] = cls._get_source_code()
 
+    @classmethod
+    def _get_source_code(cls) -> str:
+        """Get source code of this class and all its ancestor classes.
 
+        Walks the MRO (Method Resolution Order) and concatenates the source
+        code of each class from the root base down to this class.
+        Uses ``inspect.getsource``, so the source file must be available.
+
+        Returns:
+            str: Concatenated source code of all classes in the MRO.
+        """
+        source_parts: list[str] = []
+        # seen: set[str] = set()
+        # for klass in reversed(cls.__mro__):
+        #     if klass is object or klass is Serializable:
+        #         continue
+        #     if klass.__name__ in seen:
+        #         continue
+        #     seen.add(klass.__name__)
+        #     source_parts.append(inspect.getsource(klass))
+        source_parts.append(inspect.getsource(cls))
+        return "\n".join(source_parts)
 
     def __init__(self) -> None:
         super().__init__()
@@ -29,6 +56,20 @@ class Serializable():
         else:
             serialized_attrs = self._serialized_attributes
         return serialized_attrs
+    
+    @classmethod
+    def _get_obj_name(cls):
+        """Get the name of the object's class, including the mro."""
+
+        mro = inspect.getmro(cls)
+
+        name: list[str] = []
+        for klass in mro:
+            if klass is object:
+                continue
+            name.append(klass.__name__)
+        name = ".".join(reversed(name))
+        return name
 
     @staticmethod
     def _serialize_obj(obj):
@@ -74,7 +115,7 @@ class Serializable():
                 serialized_data[attr] = (None, 'NoneType')
 
 
-        return (serialized_data, type(self).__name__)
+        return (serialized_data, self._get_obj_name())
     
     @staticmethod
     def _deserialize_obj(data: tuple):
