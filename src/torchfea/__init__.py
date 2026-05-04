@@ -73,7 +73,7 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
 
             # Density is stored per element row; keep full vector for this element block.
             elems_now.density = inp.part[part_name].elems_material[elems[key][:, 0], 1]
-            part_now.add_element(elems_now)
+            part_now.add_element(elems_now, name=element_name)
  
         # Import surface sets from each part
         for surface_name, surface in inp.part[part_name].surfaces.items():

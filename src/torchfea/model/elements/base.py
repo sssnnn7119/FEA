@@ -132,8 +132,6 @@ class BaseElement(Serializable):
         """Iterate materials with backward compatibility for legacy single-material assignment."""
         mats = self.materials
         if isinstance(mats, dict):
-            if len(mats) == 0:
-                raise ValueError("No materials set for this element.")
             return mats.values()
 
         if isinstance(mats, materials.Materials_Base):

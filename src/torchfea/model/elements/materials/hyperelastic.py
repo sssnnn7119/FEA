@@ -101,7 +101,7 @@ class NeoHookean(Materials_Base):
 
         for m in range(3):
             for n in range(3):
-                C[:, :, m, n, n, m] += (muJneg).squeeze()
+                C[:, :, m, n, n, m] += muJneg[:, :, 0, 0]
 
         return s, C
 
@@ -164,6 +164,6 @@ class NeoHookeanLnJ(NeoHookean):
 
         for m in range(3):
             for n in range(3):
-                C[:, :, m, n, n, m] += (muJneg).squeeze()
+                C[:, :, m, n, n, m] += muJneg[:, :, 0, 0]
 
         return s, C

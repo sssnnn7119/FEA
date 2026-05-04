@@ -2,7 +2,7 @@ from typing import Optional
 
 import torch
 
-torch.set_default_device('cpu')
+torch.set_default_device('cuda')
 torch.set_default_dtype(torch.float64)
 
 import torchfea
@@ -15,6 +15,18 @@ class SIMPElement(torchfea.elements.Element_3D):
         self.penalfactor = penalfactor
         """the penalization factor for SIMP material"""
 
+    def initialize(self, *args, **kwargs):
+        super().initialize(*args, **kwargs)
+        self._dN2W = torch.einsum('geija,ge->geija', self.shape_function_d2_gaussian, self.gaussian_weight)
+
+        EmdUgrad2_2 = torch.zeros([1, 1, 3, 3, 3, 3, 3, 3])
+        for I0 in range(3):
+            for i0 in range(3):
+                for j0 in range(3):
+                    EmdUgrad2_2[..., I0, i0, j0, I0, i0, j0] = self.penalfactor * 2
+
+        self._EmdUe_2 = torch.einsum('geija, geklb,geIijJkl->aIbJe', self._dN2W, self.shape_function_d2_gaussian, EmdUgrad2_2)
+
     def potential_Energy(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
         
         U = RGC
@@ -26,64 +38,103 @@ class SIMPElement(torchfea.elements.Element_3D):
 
         Ugrad2 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3, 3])
         for i in range(self.num_nodes_per_elem):
-            Ugrad2 += torch.einsum('gkij,kI->gkIij',
+            Ugrad2 += torch.einsum('geij,eI->geIij',
                                          self.shape_function_d2_gaussian[..., i],
                                          U[self._elems[:, i]])
             
-        Em = self.penalfactor * torch.einsum('gkij,gkij->gk', Ugrad2, Ugrad2)
+        Er = self.penalfactor * torch.einsum('geIij,geIij,ge->', Ugrad2, Ugrad2, self.gaussian_weight)
 
 
-        return Ea + Em
+        return Ea + Er
     
     def _get_EpdUe_EpdUe2(self, U, if_onlyforce = False):
         result0 = super()._get_EpdUe_EpdUe2(U, if_onlyforce)
-        
+
         Ugrad2 = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3, 3])
         for i in range(self.num_nodes_per_elem):
-            Ugrad2 += torch.einsum('geij,kI->geIij',
+            Ugrad2 += torch.einsum('geij,eI->geIij',
                                          self.shape_function_d2_gaussian[..., i],
                                          U[self._elems[:, i]])
-
+            
         EmdUgrad2 = 2 * self.penalfactor * Ugrad2
 
-        dN2W = torch.einsum('gkija,ge->gkija', self.shape_function_d2_gaussian, self.gaussian_weight)
-
         EmdUe = torch.einsum('geIij,geija->aIe', EmdUgrad2,
-                                self._dNW)
+                                self._dN2W)
         
         if if_onlyforce:
             return EmdUe + result0
-        
-        EmdUe2 = torch.zeros([1, 1, 3, 3, 3, 3, 3, 3])
-        for I0 in range(3):
-            for i0 in range(3):
-                for j0 in range(3):
-                    for I1 in range(3):
-                        for i1 in range(3):
-                            for j1 in range(3):
-                                EmdUe2[..., I0, i0, j0, I1, i1, j1] = self.penalfactor
 
-        dN2dN2W = torch.einsum('gkija,gkklb->gkijaklb', dN2W, self.shape_function_d2_gaussian)
+        return EmdUe + result0[0], self._EmdUe_2 + result0[1]
 
-        EmdUe_2 = torch.einsum('gkijaklb,geIijJkl->aIbJe', dN2dN2W, EmdUe2)
+class SIMPElementC3D10(torchfea.elements.C3D10, SIMPElement):
+    pass
 
-        return EmdUe + result0[0], EmdUe_2 + result0[1]
+def get_fe_C3D4Less():
+    fem = torchfea.FEA_INP()
+    # fem.Read_INP(
+    #     'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/2024Arm/WorkspaceCase/CAE/TopOptRun.inp'
+    # )
 
-        
+    # fem.Read_INP(
+    #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
+    # )
+    import pathlib
+    import os
+    current_path = os.path.dirname(os.path.abspath(__file__))
+
+    path0 = pathlib.Path(current_path).parent / 'models' / 'C3D4Less.inp'
+
+    fem.read_inp(path0)
+
+    fe = torchfea.from_inp(fem)
+    fe.solver = torchfea.solver.StaticImplicitSolver()
+    # elems = torch_fea.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
+    # fe.elems['element-0'].set_materials(elems)
+
+    # torch_fea.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=torch_fea.elems['C3D4']._elems_index))
+
+    fe.assembly.add_load(torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
+                    name='pressure_1')
+
+    bc_name = fe.assembly.add_boundary(
+        torchfea.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
+
+    rp = fe.assembly.add_reference_point(torchfea.ReferencePoint([0, 0, 80]))
+
+    fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
     
+    fe.assembly.get_part('final_model').convert_linear_to_quadratic_elements(['C3D4'], ['C3D4'])
+
+    return fe
 
 if __name__ == '__main__':
     fe = torchfea.load_model('tests/test_simp_material/simpmodel.npz')
 
-    fe.assembly.get_load('pressure_1').pressure = 0.01
+    # fe = get_fe_C3D4Less()
+
+    fe.assembly.get_load('pressure_1').pressure = 0.06
+
+    fe.initialize()
+
+    result = torchfea.solver.StaticResult.load('tests/test_simp_material/result.npz')
+
+    # fe.assembly.show_all(result.GC)
+
+
+
 
     part = fe.assembly.get_part('final_model')
 
     elem_c3d4 = part.elems['C3D4']
+    elem_c3d4_simp = SIMPElementC3D10(elem_c3d4._elems_index, elem_c3d4._elems, penalfactor=torch.tensor(1e1))
+    elem_c3d4_simp.materials = elem_c3d4.materials
 
-    fe.initialize()
+    part.elems['C3D4'] = elem_c3d4_simp
 
-    GC0 = torch.zeros([fe.assembly.GC.shape[0]])
+
+    resultsimp = fe.solve()
+
+    fe.assembly.show_all(resultsimp.GC)
 
 
 
