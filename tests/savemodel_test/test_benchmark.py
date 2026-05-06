@@ -56,6 +56,8 @@ with tempfile.TemporaryDirectory(prefix='torchfea_cache_') as temp_dir:
     print(f'Model size: {os.path.getsize(dir_path) / 1e6:.2f} MB')
     fe_new = torchfea.load_model(dir_path)
 
+    torchfea.retrieve_source_code(dir_path, os.path.join(current_path, 'retrieved_source_code.py'))
+
 result = fe_new.solve(tol_error=0.01)
 # result.save('temp.npz')
 # result = torchfea.solver.StaticResult.load('temp.npz')

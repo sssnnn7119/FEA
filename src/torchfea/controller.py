@@ -126,3 +126,26 @@ def load_model(path: str) -> FEAController:
     loaded = np.load(path, allow_pickle=True)
     serialized_data = loaded['data']
     return FEAController._deserialize(serialized_data)
+
+def retrieve_source_code(path: str, path_out: str):
+    """
+    Retrieve the source code of subclasses from a saved model file for debugging purposes.
+
+    Args:
+        path (str): The file path to load the model from.
+        path_out (str): The file path to save the source code to.
+    """
+
+    loaded = np.load(path, allow_pickle=True)
+
+    if 'source_code' not in loaded:
+        raise ValueError("The .npz file does not contain 'source_code' key.")
+    source_code = loaded['source_code'].item()  # Assuming source_code is stored as a dictionary in the .npz file
+
+    result = ""
+    for class_name, code in source_code.items():
+        result += f"#========= Source code for {class_name} =========#\n"
+        result += code + "\n\n"
+    
+    with open(path_out, 'w') as f:
+        f.write(result)

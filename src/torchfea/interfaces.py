@@ -161,4 +161,5 @@ class Serializable():
             setattr(obj, attr, deserialized_value)
         return obj
     
-    
+Serializable._subclass_source_code['Serializable'] = inspect.getsource(Serializable)
+
