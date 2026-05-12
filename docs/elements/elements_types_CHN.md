@@ -715,5 +715,5 @@ C3D8R 中沙漏控制的常用方法包括：
 ## 附录
 
 单元类型绘图
-![节点、面定义](element_visualizations/nodes_orders.png)
-![高斯点定义](element_visualizations/int_points_2.png)
+![节点、面定义](element_types_visualizations/nodes_orders.png)
+![高斯点定义](element_types_visualizations/int_points_2.png)

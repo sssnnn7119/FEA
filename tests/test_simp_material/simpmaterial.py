@@ -24,7 +24,7 @@ class SIMPElement(torchfea.elements.Element_3D):
             for i0 in range(3):
                 for j0 in range(3):
                     EmdUgrad2_2[..., I0, i0, j0, I0, i0, j0] = self.penalfactor * 2
-
+        
         self._EmdUe_2 = torch.einsum('geija, geklb,geIijJkl->aIbJe', self._dN2W, self.shape_function_d2_gaussian, EmdUgrad2_2)
 
     def potential_Energy(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
@@ -202,7 +202,7 @@ def test_solve():
     part = fe.assembly.get_part('final_model')
 
     elem_c3d4 = part.elems['C3D4']
-    elem_c3d4_simp = SIMPElementC3D10(elem_c3d4._elems_index, elem_c3d4._elems, penalfactor=torch.tensor(1e-4))
+    elem_c3d4_simp = SIMPElementC3D10(elem_c3d4._elems_index, elem_c3d4._elems, penalfactor=torch.tensor(1e-3))
     elem_c3d4_simp.materials = elem_c3d4.materials
 
     part.elems['C3D4'] = elem_c3d4_simp

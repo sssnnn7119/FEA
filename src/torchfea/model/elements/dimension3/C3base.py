@@ -19,24 +19,6 @@ class Element_3D(BaseElement):
         the number of surfaces of the element
     """
 
-    def __init_subclass__(cls):
-        super().__init_subclass__()
-
-        if hasattr(cls, 'shape_function'):
-            cls.shape_function[0] = cls.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())
-            cls.shape_function.append(torch.stack([
-                    cls._shape_function_derivative(cls.shape_function[0], 0),
-                    cls._shape_function_derivative(cls.shape_function[0], 1),
-                    cls._shape_function_derivative(cls.shape_function[0], 2),
-                ],
-                            dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
-            
-            cls.shape_function.append(torch.zeros(
-                [3, 3, cls.shape_function[0].shape[0], cls.shape_function[0].shape[1]]))
-            for i in range(3):
-                for j in range(3):
-                    cls.shape_function[2][i, j] = cls._shape_function_derivative(cls.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
-
     def __init__(self, elems_index: torch.Tensor,
                  elems: torch.Tensor) -> None:
         super().__init__(elems_index, elems)
@@ -72,6 +54,30 @@ class Element_3D(BaseElement):
 
         self._dNdNW: torch.Tensor
         """the derivative of the shape function multiplied by the guassian weight [guassian, element, derivative, node, derivative, node]"""
+
+        # convert the shape function and the guassian points to the default device and dtype
+        if hasattr(self, 'shape_function'):
+
+            self.shape_function = [self.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())]
+            self.shape_function.append(torch.stack([
+                    self._shape_function_derivative(self.shape_function[0], 0),
+                    self._shape_function_derivative(self.shape_function[0], 1),
+                    self._shape_function_derivative(self.shape_function[0], 2),
+                ],
+                            dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
+            
+            self.shape_function.append(torch.zeros(
+                [3, 3, self.shape_function[0].shape[0], self.shape_function[0].shape[1]]))
+            for i in range(3):
+                for j in range(3):
+                    self.shape_function[2][i, j] = self._shape_function_derivative(self.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
+
+        if hasattr(self, 'gaussian_coordinates'):
+            self.gaussian_coordinates = self.gaussian_coordinates.to(torch.get_default_device()).to(torch.get_default_dtype())
+
+        if hasattr(self, 'gaussian_weight_ref'):
+            self.gaussian_weight_ref = self.gaussian_weight_ref.to(torch.get_default_device()).to(torch.get_default_dtype())
+
 
 
     def initialize(self, nodes: torch.Tensor, *args, **kwargs) -> None:
@@ -575,3 +581,4 @@ class Element_3D(BaseElement):
     
     
     # endregion second order methods
+
