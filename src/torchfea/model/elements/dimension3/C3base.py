@@ -19,6 +19,24 @@ class Element_3D(BaseElement):
         the number of surfaces of the element
     """
 
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+
+        if hasattr(cls, 'shape_function'):
+            cls.shape_function[0] = cls.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())
+            cls.shape_function.append(torch.stack([
+                    cls._shape_function_derivative(cls.shape_function[0], 0),
+                    cls._shape_function_derivative(cls.shape_function[0], 1),
+                    cls._shape_function_derivative(cls.shape_function[0], 2),
+                ],
+                            dim=0).to(torch.get_default_device()).to(torch.get_default_dtype()))
+            
+            cls.shape_function.append(torch.zeros(
+                [3, 3, cls.shape_function[0].shape[0], cls.shape_function[0].shape[1]]))
+            for i in range(3):
+                for j in range(3):
+                    cls.shape_function[2][i, j] = cls._shape_function_derivative(cls.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
+
     def __init__(self, elems_index: torch.Tensor,
                  elems: torch.Tensor) -> None:
         super().__init__(elems_index, elems)
@@ -55,10 +73,8 @@ class Element_3D(BaseElement):
         self._dNdNW: torch.Tensor
         """the derivative of the shape function multiplied by the guassian weight [guassian, element, derivative, node, derivative, node]"""
 
-        # convert the shape function and the guassian points to the default device and dtype
         if hasattr(self, 'shape_function'):
-
-            self.shape_function = [self.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())]
+            self.shape_function[0] = self.shape_function[0].to(torch.get_default_device()).to(torch.get_default_dtype())
             self.shape_function.append(torch.stack([
                     self._shape_function_derivative(self.shape_function[0], 0),
                     self._shape_function_derivative(self.shape_function[0], 1),
@@ -71,13 +87,6 @@ class Element_3D(BaseElement):
             for i in range(3):
                 for j in range(3):
                     self.shape_function[2][i, j] = self._shape_function_derivative(self.shape_function[1][i], j).to(torch.get_default_device()).to(torch.get_default_dtype())
-
-        if hasattr(self, 'gaussian_coordinates'):
-            self.gaussian_coordinates = self.gaussian_coordinates.to(torch.get_default_device()).to(torch.get_default_dtype())
-
-        if hasattr(self, 'gaussian_weight_ref'):
-            self.gaussian_weight_ref = self.gaussian_weight_ref.to(torch.get_default_device()).to(torch.get_default_dtype())
-
 
 
     def initialize(self, nodes: torch.Tensor, *args, **kwargs) -> None:
@@ -407,13 +416,16 @@ class Element_3D(BaseElement):
 
         return self._indices_matrix, values
         
-    def potential_Energy(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
-        
-        U = RGC
+    def get_deformation_gradient(self, U: torch.Tensor):
+        """
+        Calculate the deformation gradient F at Gaussian points for the element.
 
-        if rotation_matrix is not None:
-            U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
+        Args:
+            U: [num_nodes, 3], the nodal displacements
 
+        Returns:
+            torch.Tensor: [num_gaussian, num_elem, 3, 3], deformation gradient F at each Gaussian point
+        """
 
         Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
         for i in range(self.num_nodes_per_elem):
@@ -426,10 +438,36 @@ class Element_3D(BaseElement):
         F[:, :, 1, 1] += 1
         F[:, :, 2, 2] += 1
 
+        return F
+
+    def get_potential_energy_density(self, U: torch.Tensor):
+        """
+        Calculate the potential energy density at Gaussian points for the element.
+
+        Args:
+            U: [num_nodes, 3], the nodal displacements
+
+        Returns:
+            torch.Tensor: [num_gaussian, num_elem], potential energy density at each Gaussian point
+        """
+
+        F = self.get_deformation_gradient(U=U)
+
         W = torch.zeros([self._num_gaussian, self._elems.shape[0]], device=F.device, dtype=F.dtype)
         for mat_now in self._iter_material_values():
             W = W + mat_now.strain_energy_density_C3(F=F,)
+
+        return W
+
+    def potential_Energy(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None):
         
+        U = RGC
+
+        if rotation_matrix is not None:
+            U = torch.einsum('ij,aj->ai', rotation_matrix.T, U)
+
+        W = self.get_potential_energy_density(U=U)
+
         Ea = torch.einsum(
             'ge,ge->',W,
             self.gaussian_weight)
@@ -500,16 +538,8 @@ class Element_3D(BaseElement):
         return self._indices_force, Relement.flatten(), self._indices_matrix, values
 
     def components_Solid(self, U: torch.Tensor):
-        Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
-        for i in range(self.num_nodes_per_elem):
-            Ugrad += torch.einsum('gki,kI->gkIi',
-                                         self.shape_function_d1_gaussian[:, :, :, i],
-                                         U[self._elems[:, i]])
-
-        F = Ugrad.clone()
-        F[:, :, 0, 0] += 1
-        F[:, :, 1, 1] += 1
-        F[:, :, 2, 2] += 1
+        
+        F = self.get_deformation_gradient(U=U)
 
         invF = F.inverse()
         J = F.det()
@@ -536,17 +566,8 @@ class Element_3D(BaseElement):
         if U is None:
             return self.gaussian_weight.sum()
         else:
-            Ugrad = torch.zeros([self._num_gaussian, self._elems.shape[0], 3, 3])
-            for i in range(self.num_nodes_per_elem):
-                Ugrad = Ugrad + torch.einsum('gki,kI->gkIi',
-                                            self.shape_function_d1_gaussian[:, :, :, i],
-                                            U[self._elems[:, i]])
-            F = Ugrad.clone()
-            F[:, :, 0, 0] += 1
-            F[:, :, 1, 1] += 1
-            F[:, :, 2, 2] += 1
+            F = self.get_deformation_gradient(U=U)
             J = F.det()
- 
             return (self.gaussian_weight * J).sum()
 
     def set_required_DoFs(
@@ -581,4 +602,3 @@ class Element_3D(BaseElement):
     
     
     # endregion second order methods
-

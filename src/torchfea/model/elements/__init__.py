@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from .base import BaseElement
-from .dimension3 import C3D4, C3D6, C3D8R, C3D10, C3D15, C3D8, C3D20, Element_3D, surfaces
+from .dimension3 import C3D4, C3D6, C3D10, C3D15, C3D8, C3D20, Element_3D, surfaces
 from . import materials
 from .dimension3.surfaces import initialize_surfaces, T3, T6, Q4, Q8, BaseSurface
 
