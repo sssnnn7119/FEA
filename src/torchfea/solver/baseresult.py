@@ -1,9 +1,22 @@
 
 
+import torch
+
+
 class BaseResult():
     """
     A class to represent the results of a finite element analysis (FEA) simulation.
     """
+
+    def __init__(self):
+        """
+        Initialize the FEA result.
+        """
+        self.converged: bool = False
+        """Whether the solution converged."""
+
+        self.GC: torch.Tensor = None
+        """The generalized coordinates of the solution."""
 
     def save(self, path: str):
         """
