@@ -1,4 +1,6 @@
 
+from math import e
+
 import numpy as np
 import torch
 from .model import Assembly
@@ -47,6 +49,10 @@ class FEAController(Serializable):
         """
         if if_initialize:
             self.initialize()
+        else:
+            self.assembly.define_required_DoFs()
+
+            
         result = self.solver.solve(GC0=GC0, *args, **kwargs)
         return result
 

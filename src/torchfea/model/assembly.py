@@ -139,6 +139,76 @@ class Assembly(Serializable):
 
     # region Initialization
 
+    class _Initializer:
+
+        @staticmethod
+        def sort_objects(assembly: 'Assembly'):
+            assembly._parts = dict(sorted(assembly._parts.items()))
+            assembly._instances = dict(sorted(assembly._instances.items()))
+            assembly._loads = dict(sorted(assembly._loads.items()))
+            assembly._constraints = dict(sorted(assembly._constraints.items()))
+            assembly._boundarys = dict(sorted(assembly._boundarys.items()))
+
+        @staticmethod
+        def initialize_instance_with_part(assembly: 'Assembly'):
+            for ins in assembly._instances.values():
+                part_name = ins.part_name
+                if part_name not in assembly._parts:
+                    raise ValueError(
+                        f"Part '{part_name}' not found for instance '{ins}'.")
+                ins.part = assembly._parts[part_name]
+                ins._RGC_requirements = tuple(ins.part.nodes.shape)
+
+        @staticmethod
+        def initialize_RGC(assembly: 'Assembly'):
+            assembly.RGC = []
+            assembly.RGC_remain_index = []
+            assembly.RGC_list_indexStart = [0]
+            assembly._RGC_size = []
+
+            for ins in assembly._instances.keys():
+                RGC_index = assembly._allocate_RGC(
+                    size=assembly._instances[ins]._RGC_requirements)
+                assembly._instances[ins].set_RGC_index(RGC_index)
+
+            for rp in assembly._reference_points.keys():
+                RGC_index = assembly._allocate_RGC(
+                    size=assembly._reference_points[rp]._RGC_requirements)
+                assembly._reference_points[rp].set_RGC_index(RGC_index)
+                assembly.RGC[RGC_index][-1] = 1e-5
+
+            for f in assembly._loads.keys():
+                RGC_index = assembly._allocate_RGC(
+                    size=assembly._loads[f]._RGC_requirements)
+                assembly._loads[f].set_RGC_index(RGC_index)
+
+            for c in assembly._constraints.keys():
+                RGC_index = assembly._allocate_RGC(
+                    size=assembly._constraints[c]._RGC_requirements)
+                assembly._constraints[c].set_RGC_index(RGC_index)
+
+            for b in assembly._boundarys.keys():
+                RGC_index = assembly._allocate_RGC(
+                    size=assembly._boundarys[b]._RGC_requirements)
+                assembly._boundarys[b].set_RGC_index(RGC_index)
+        
+        @staticmethod
+        def initialize_objects(assembly: 'Assembly'):
+            for part in assembly._parts.values():
+                part.initialize()
+
+            for ins in assembly._instances.values():
+                ins.initialize(assembly)
+
+            for f in assembly._loads.values():
+                f.initialize(assembly)
+
+            for c in assembly._constraints.values():
+                c.initialize(assembly)
+
+            for b in assembly._boundarys.values():
+                b.initialize(assembly)
+
     def initialize(self, *args, **kwargs):
         """
         Initialize the finite element model.
@@ -150,85 +220,17 @@ class Assembly(Serializable):
             None
         """
 
-        # region sort the parts, instances, loads, and constraints
-        self._parts = dict(sorted(self._parts.items()))
-        self._instances = dict(sorted(self._instances.items()))
-        self._loads = dict(sorted(self._loads.items()))
-        self._constraints = dict(sorted(self._constraints.items()))
-        self._reference_points = dict(sorted(self._reference_points.items()))
-        self._boundarys = dict(sorted(self._boundarys.items()))
-        # endregion
+        self._Initializer.sort_objects(self)
 
-        # region initialize the instance with the part
-        for ins in self._instances.values():
-            part_name = ins.part_name
-            if part_name not in self._parts:
-                raise ValueError(
-                    f"Part '{part_name}' not found for instance '{ins}'.")
-            ins.part = self._parts[part_name]
-            ins._RGC_requirements = tuple(ins.part.nodes.shape)
+        self._Initializer.initialize_instance_with_part(self)
 
-        # region initialize the RGC
+        self._Initializer.initialize_RGC(self)
 
-        # initialize the RGC (redundant generalized coordinate)
-        self.RGC = []
-        self.RGC_remain_index = []
-        self.RGC_list_indexStart = [0]
-        self._RGC_size = []
+        self._Initializer.initialize_objects(self)
 
-        for ins in self._instances.keys():
-            RGC_index = self._allocate_RGC(
-                size=self._instances[ins]._RGC_requirements)
-            self._instances[ins].set_RGC_index(RGC_index)
+        self.define_required_DoFs()
 
-        for rp in self._reference_points.keys():
-            RGC_index = self._allocate_RGC(
-                size=self._reference_points[rp]._RGC_requirements)
-            self._reference_points[rp].set_RGC_index(RGC_index)
-            self.RGC[RGC_index][-1] = 1e-5
-
-        for f in self._loads.keys():
-            RGC_index = self._allocate_RGC(
-                size=self._loads[f]._RGC_requirements)
-            self._loads[f].set_RGC_index(RGC_index)
-
-        for c in self._constraints.keys():
-            RGC_index = self._allocate_RGC(
-                size=self._constraints[c]._RGC_requirements)
-            self._constraints[c].set_RGC_index(RGC_index)
-
-        for b in self._boundarys.keys():
-            RGC_index = self._allocate_RGC(
-                size=self._boundarys[b]._RGC_requirements)
-            self._boundarys[b].set_RGC_index(RGC_index)
-
-        # endregion
-
-        # region initialize the elements, loads, and constraints
-
-        # initialize the parts
-        for part in self._parts.values():
-            part.initialize()
-
-        # initialize the instances
-        for ins in self._instances.values():
-            ins.initialize(self)
-
-        # initialize the loads
-        for l in self._loads.values():
-            l.initialize(self)
-
-        # initialize the constraints
-        for c in self._constraints.values():
-            c.initialize(self)
-
-        # initialize the boundary conditions
-        for b in self._boundarys.values():
-            b.initialize(self)
-
-        # endregion
-
-        # region modify the RGC_remain_index
+    def define_required_DoFs(self):
         for ins in self._instances.values():
             self.RGC_remain_index = ins.set_required_DoFs(self.RGC_remain_index)
 
@@ -256,8 +258,6 @@ class Assembly(Serializable):
             for j in range(len(self.RGC_remain_index))
         ]).tolist()
         self._GC_list_indexStart.insert(0, 0)
-
-        # endregion
 
     def initialize_dynamic(self):
             
