@@ -6,6 +6,8 @@ import pypardiso
 
 if TYPE_CHECKING:
     from ... import Assembly
+    
+from ...model.assembly import WorkCondition
 
 import numpy as np
 import torch
@@ -18,7 +20,7 @@ class StaticResult(BaseResult):
     The result of a static finite element analysis (FEA) simulation.
     """
 
-    def __init__(self, GC: torch.Tensor, load_params: dict[str, torch.Tensor], jacobian: dict[str, torch.Tensor] = None, total_time: float = 0.0, time_items: dict[str, list[float]] = None, converged: bool = True):
+    def __init__(self, GC: torch.Tensor, work_conditions: WorkCondition, jacobian: dict[str, torch.Tensor] = None, total_time: float = 0.0, time_items: dict[str, list[float]] = None, converged: bool = True):
         super().__init__()
         self.GC = GC.detach().clone()
         """ 
@@ -37,9 +39,10 @@ class StaticResult(BaseResult):
         The Jacobian matrix (dGC/dLoadParams) of the static FEA result.
         """
 
-        self.load_params: dict[str, torch.Tensor] = {k: v.detach().clone() for k, v in load_params.items()}
+        self.work_conditions: WorkCondition = work_conditions
         """
-        Load parameters used in the simulation
+        The work conditions (loads, boundary conditions, etc.) used in the static FEA simulation.
+        This is stored to allow for sensitivity analysis and to ensure that the same conditions can be applied when reusing the result.
         """
 
         self.K_solver: pypardiso.PyPardisoSolver = None
@@ -84,7 +87,7 @@ class StaticResult(BaseResult):
             K_idx (torch.Tensor): The indices of the stiffness matrix.
             K_val (torch.Tensor): The values of the stiffness matrix.
         """
-        assembly.set_load_parameters(self.load_params)
+        assembly.set_work_conditions(self.work_conditions)
         K_indices, K_values = assembly.assemble_Stiffness_Matrix(GC=self.GC)[1:]
         K_sp = sp.coo_matrix((K_values.detach().cpu().numpy(), (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())))
         self.K_sp = K_sp.tocsr()
@@ -112,12 +115,10 @@ class StaticResult(BaseResult):
             path (str): The path to the file where the result will be saved.
         """
         # Implementation for saving static FEA results goes here
-        load_params = {}
-        if self.load_params is not None:
-            for key, value in self.load_params.items():
-                load_params[key] = value.cpu().numpy()
+        
+        serialized_work_conditions = self.work_conditions._serialize()
 
-        np.savez_compressed(file=path, GC=self.GC.cpu().numpy(), load_params=load_params, total_time=self.total_time, time_items=self.time_items)
+        np.savez_compressed(file=path, GC=self.GC.cpu().numpy(), work_conditions=serialized_work_conditions, total_time=self.total_time, time_items=self.time_items)
     
     @classmethod
     def load(cls, path: str) -> "StaticResult":
@@ -130,11 +131,10 @@ class StaticResult(BaseResult):
         # Implementation for loading static FEA results goes here
         data = np.load(path, allow_pickle=True)
         GC = torch.tensor(data['GC'])
-        load_params_np = data['load_params'].item() if 'load_params' in data else None
-        load_params = {}
-        if load_params_np is not None:
-            for key, value in load_params_np.items():
-                load_params[key] = torch.tensor(value.tolist())
         total_time = float(data.get('total_time', 0.0))
         time_items = data.get('time_items', {}).item() if 'time_items' in data else {}
-        return cls(GC=GC, load_params=load_params, total_time=total_time, time_items=time_items)
+        serialized_work_conditions = data['work_conditions'] if 'work_conditions' in data else None
+
+        work_conditions = WorkCondition._deserialize(serialized_work_conditions) if serialized_work_conditions is not None else None
+
+        return cls(GC=GC, work_conditions=work_conditions, total_time=total_time, time_items=time_items)

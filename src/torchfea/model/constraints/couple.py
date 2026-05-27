@@ -85,7 +85,7 @@ class Couple(BaseConstraint):
         if not if_onlyforce and (K_indices is None or K_values is None):
             raise ValueError("K_indices and K_values must be provided when if_onlyforce is False")
 
-        R_now = R0[self._assembly.RGC_list_indexStart[self._instance_RGC_index]:self._assembly.RGC_list_indexStart[self._instance_RGC_index+1]].view(-1, 3)
+        R_now = R0[self._assembly._RGC_list_indexStart[self._instance_RGC_index]:self._assembly._RGC_list_indexStart[self._instance_RGC_index+1]].view(-1, 3)
         Ydot, Ydot2 = self._calculate_Ydotz(RGC)
 
         # R
@@ -95,8 +95,8 @@ class Couple(BaseConstraint):
         Edotv = Rrest.sum(dim=0)
         Edotz = torch.einsum('bj,bjp->p', Rrest, Ydot)
 
-        R = torch.zeros(self._assembly.RGC_list_indexStart[-1])
-        start_idx = self._assembly.RGC_list_indexStart[self._rp_index]
+        R = torch.zeros(self._assembly._RGC_list_indexStart[-1])
+        start_idx = self._assembly._RGC_list_indexStart[self._rp_index]
         R[start_idx:start_idx+3] += Edotv
         R[start_idx+3:start_idx+6] += Edotz
         # endregion
@@ -110,8 +110,8 @@ class Couple(BaseConstraint):
 
         # initial select the instance indices
 
-        indice_max = self._assembly.RGC_list_indexStart[-1]
-        indice_start = self._assembly.RGC_list_indexStart[self._couple_index]
+        indice_max = self._assembly._RGC_list_indexStart[-1]
+        indice_start = self._assembly._RGC_list_indexStart[self._couple_index]
 
         index = torch.where(
             torch.isin(((K_indices[1] - indice_start) // 3),
@@ -161,7 +161,7 @@ class Couple(BaseConstraint):
         ## for Rv
         indice_Rv = Rdotv_indices
         index1 = indice_Rv[0]
-        index2 = self._assembly.RGC_list_indexStart[self._rp_index] + indice_Rv[1]
+        index2 = self._assembly._RGC_list_indexStart[self._rp_index] + indice_Rv[1]
         indices.append(torch.stack([index1, index2], dim=0))
         values.append(Rdotv_values)
         indices.append(torch.stack([index2, index1], dim=0))
@@ -169,7 +169,7 @@ class Couple(BaseConstraint):
         ## for Rz
         indice_Rz = Rdotz_indices
         index1 = indice_Rz[0]
-        index2 = self._assembly.RGC_list_indexStart[self._rp_index] + indice_Rz[1] + 3
+        index2 = self._assembly._RGC_list_indexStart[self._rp_index] + indice_Rz[1] + 3
         indices.append(torch.stack([index1, index2], dim=0))
         values.append(Rdotz_values)
         indices.append(torch.stack([index2, index1], dim=0))
@@ -187,8 +187,8 @@ class Couple(BaseConstraint):
             torch.tensor([0, 1, 2, 3, 4,
                         5]).reshape(1, -1).repeat(6, 1).flatten()
         ]
-        index1 = indice_Edot2[0] + self._assembly.RGC_list_indexStart[self._rp_index]
-        index2 = indice_Edot2[1] + self._assembly.RGC_list_indexStart[self._rp_index]
+        index1 = indice_Edot2[0] + self._assembly._RGC_list_indexStart[self._rp_index]
+        index2 = indice_Edot2[1] + self._assembly._RGC_list_indexStart[self._rp_index]
         indices.append(torch.stack([index1, index2], dim=0))
         values.append(mat66.flatten())
 

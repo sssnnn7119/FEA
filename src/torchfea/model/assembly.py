@@ -10,6 +10,14 @@ import pyvista as pv
 from ..interfaces import Serializable
 
 
+class WorkCondition(Serializable):
+    def __init__(self):
+        self.load_info: dict[str, torch.Tensor] = {}
+        self.ins_enabled: dict[str, bool] = {}
+        self.load_enabled: dict[str, bool] = {}
+        self.constraint_enabled: dict[str, bool] = {}
+        self.boundary_enabled: dict[str, bool] = {}
+
 class Assembly(Serializable):
 
     _serialized_attributes: list[str] = ['_parts', '_instances', '_surfaces', '_reference_points', '_loads', '_constraints', '_boundarys']
@@ -37,8 +45,16 @@ class Assembly(Serializable):
         self._boundarys: dict[str, boundarys.BaseBoundary] = {}
         """Dictionary to store boundary conditions with names as keys and Boundary objects as values."""
 
+        self._instances_enabled: list[Instance] = []
+        """List to keep track of enabled instances for analysis."""
+        self._loads_enabled: list[loads.BaseLoad] = []
+        """List to keep track of enabled loads for analysis."""
+        self._constraints_enabled: list[constraints.BaseConstraint] = []
+        """List to keep track of enabled constraints for analysis."""
+        self._boundarys_enabled: list[boundarys.BaseBoundary] = []
+        """List to keep track of enabled boundary conditions for analysis."""
 
-        self.RGC: list[torch.Tensor]
+        self._RGC: list[torch.Tensor]
         """
         record the redundant generalized coordinates
         """
@@ -47,18 +63,18 @@ class Assembly(Serializable):
         """Record the size of each RGC component
         """
 
-        self.RGC_remain_index: list[np.ndarray]
+        self._RGC_remain_index: list[np.ndarray]
         """
         record the remaining index of the RGC\n
         """
 
-        self.RGC_remain_index_flatten: torch.Tensor
+        self._RGC_remain_index_flatten: torch.Tensor
         """
         record the remaining index of the RGC (flattened)\n
         """
 
         # initialize the GC (generalized coordinates)
-        self.GC: torch.Tensor
+        self._GC: torch.Tensor
         """
         record the generalized coordinates\n
         """
@@ -67,14 +83,14 @@ class Assembly(Serializable):
         """
         record the start index of the GC\n
         """
-        self.RGC_list_indexStart: list[int] = []
+        self._RGC_list_indexStart: list[int] = []
         """Record the start index of the RGC\n
         """
 
-        self.mass_matrix_indices: torch.Tensor
+        self._mass_matrix_indices: torch.Tensor
         """The indices of the mass matrix"""
 
-        self.mass_matrix_values: torch.Tensor
+        self._mass_matrix_values: torch.Tensor
         """The values of the mass matrix"""
 
     # region visualization
@@ -142,7 +158,7 @@ class Assembly(Serializable):
     class _Initializer:
 
         @staticmethod
-        def sort_objects(assembly: 'Assembly'):
+        def _sort_objects(assembly: 'Assembly'):
             assembly._parts = dict(sorted(assembly._parts.items()))
             assembly._instances = dict(sorted(assembly._instances.items()))
             assembly._loads = dict(sorted(assembly._loads.items()))
@@ -150,7 +166,7 @@ class Assembly(Serializable):
             assembly._boundarys = dict(sorted(assembly._boundarys.items()))
 
         @staticmethod
-        def initialize_instance_with_part(assembly: 'Assembly'):
+        def _initialize_instance_with_part(assembly: 'Assembly'):
             for ins in assembly._instances.values():
                 part_name = ins.part_name
                 if part_name not in assembly._parts:
@@ -160,10 +176,10 @@ class Assembly(Serializable):
                 ins._RGC_requirements = tuple(ins.part.nodes.shape)
 
         @staticmethod
-        def initialize_RGC(assembly: 'Assembly'):
-            assembly.RGC = []
-            assembly.RGC_remain_index = []
-            assembly.RGC_list_indexStart = [0]
+        def _initialize_RGC(assembly: 'Assembly'):
+            assembly._RGC = []
+            assembly._RGC_remain_index = []
+            assembly._RGC_list_indexStart = [0]
             assembly._RGC_size = []
 
             for ins in assembly._instances.keys():
@@ -175,7 +191,7 @@ class Assembly(Serializable):
                 RGC_index = assembly._allocate_RGC(
                     size=assembly._reference_points[rp]._RGC_requirements)
                 assembly._reference_points[rp].set_RGC_index(RGC_index)
-                assembly.RGC[RGC_index][-1] = 1e-5
+                assembly._RGC[RGC_index][-1] = 1e-5
 
             for f in assembly._loads.keys():
                 RGC_index = assembly._allocate_RGC(
@@ -193,7 +209,7 @@ class Assembly(Serializable):
                 assembly._boundarys[b].set_RGC_index(RGC_index)
         
         @staticmethod
-        def initialize_objects(assembly: 'Assembly'):
+        def _initialize_objects(assembly: 'Assembly'):
             for part in assembly._parts.values():
                 part.initialize()
 
@@ -209,6 +225,37 @@ class Assembly(Serializable):
             for b in assembly._boundarys.values():
                 b.initialize(assembly)
 
+        @staticmethod
+        def _initialize_enabled_objects(assembly: 'Assembly'):
+
+            assembly._instances_enabled = []
+            for ins in assembly._instances.values():
+                if ins.enabled:
+                    assembly._instances_enabled.append(ins)
+
+            assembly._loads_enabled = []
+            for f in assembly._loads.values():
+                if f.enabled:
+                    assembly._loads_enabled.append(f)
+
+            assembly._constraints_enabled = []
+            for c in assembly._constraints.values():
+                if c.enabled:
+                    assembly._constraints_enabled.append(c)
+
+            assembly._boundarys_enabled = []
+            for b in assembly._boundarys.values():
+                if b.enabled:
+                    assembly._boundarys_enabled.append(b)
+
+        @staticmethod
+        def initialize(assembly: 'Assembly'):
+            Assembly._Initializer._sort_objects(assembly)
+            Assembly._Initializer._initialize_instance_with_part(assembly)
+            Assembly._Initializer._initialize_RGC(assembly)
+            Assembly._Initializer._initialize_objects(assembly)
+            Assembly._Initializer._initialize_enabled_objects(assembly)
+
     def initialize(self, *args, **kwargs):
         """
         Initialize the finite element model.
@@ -220,65 +267,59 @@ class Assembly(Serializable):
             None
         """
 
-        self._Initializer.sort_objects(self)
-
-        self._Initializer.initialize_instance_with_part(self)
-
-        self._Initializer.initialize_RGC(self)
-
-        self._Initializer.initialize_objects(self)
+        self._Initializer.initialize(self)
 
         self.define_required_DoFs()
 
     def define_required_DoFs(self):
-        for ins in self._instances.values():
-            self.RGC_remain_index = ins.set_required_DoFs(self.RGC_remain_index)
+        for ins in self._instances_enabled:
+            self._RGC_remain_index = ins.set_required_DoFs(self._RGC_remain_index)
 
-        for f in self._loads.values():
-            self.RGC_remain_index = f.set_required_DoFs(self.RGC_remain_index)
+        for f in self._loads_enabled:
+            self._RGC_remain_index = f.set_required_DoFs(self._RGC_remain_index)
 
-        for c in self._constraints.values():
-            self.RGC_remain_index = c.set_required_DoFs(self.RGC_remain_index)
+        for c in self._constraints_enabled:
+            self._RGC_remain_index = c.set_required_DoFs(self._RGC_remain_index)
 
         # Finally, apply boundary conditions to deactivate Dirichlet DOFs
-        for b in self._boundarys.values():
-            self.RGC_remain_index = b.set_required_DoFs(self.RGC_remain_index)
+        for b in self._boundarys_enabled:
+            self._RGC_remain_index = b.set_required_DoFs(self._RGC_remain_index)
 
-        self.RGC_remain_index_flatten = np.concatenate([
-            self.RGC_remain_index[i].reshape(-1)
-            for i in range(len(self.RGC_remain_index))
+        self._RGC_remain_index_flatten = np.concatenate([
+            self._RGC_remain_index[i].reshape(-1)
+            for i in range(len(self._RGC_remain_index))
         ]).tolist()
-        self.RGC_remain_index_flatten = torch.tensor(
-            self.RGC_remain_index_flatten, dtype=torch.bool)
+        self._RGC_remain_index_flatten = torch.tensor(
+            self._RGC_remain_index_flatten, dtype=torch.bool)
 
         # GC core
-        self.GC = self._RGC2GC(self.RGC)
+        self._GC = self._RGC2GC(self._RGC)
         self._GC_list_indexStart = np.cumsum([
-            self.RGC_remain_index[j].sum()
-            for j in range(len(self.RGC_remain_index))
+            self._RGC_remain_index[j].sum()
+            for j in range(len(self._RGC_remain_index))
         ]).tolist()
         self._GC_list_indexStart.insert(0, 0)
 
     def initialize_dynamic(self):
             
-        for ins in self._instances.values():
+        for ins in self._instances_enabled:
             ins.initialize_dynamic()
 
-        for l in self._loads.values():
+        for l in self._loads_enabled:
             l.initialize_dynamic()
 
-        for c in self._constraints.values():
+        for c in self._constraints_enabled:
             c.initialize_dynamic()
 
         # assemble the redundant mass matrix
         mass_indices = []
         mass_values = []
-        for ins in self._instances.values():
+        for ins in self._instances_enabled:
             indices_now, values_now = ins.get_mass_matrix()
             mass_indices.append(indices_now)
             mass_values.append(values_now)
-        self.mass_matrix_indices = torch.cat(mass_indices, dim=1)
-        self.mass_matrix_values = torch.cat(mass_values, dim=0)
+        self._mass_matrix_indices = torch.cat(mass_indices, dim=1)
+        self._mass_matrix_values = torch.cat(mass_values, dim=0)
 
     def reinitialize(self, RGC: list[torch.Tensor]):
         """
@@ -287,16 +328,16 @@ class Assembly(Serializable):
         Args:
             RGC (list[torch.Tensor]): The redundant generalized coordinates.
         """
-        self.RGC = RGC
-        self.GC = self._RGC2GC(self.RGC)
+        self._RGC = RGC
+        self._GC = self._RGC2GC(self._RGC)
 
-        for ins in self._instances.values():
+        for ins in self._instances_enabled:
             ins.reinitialize(RGC)
 
-        for l in self._loads.values():
+        for l in self._loads_enabled:
             l.reinitialize(RGC)
 
-        for c in self._constraints.values():
+        for c in self._constraints_enabled:
             c.reinitialize(RGC)
     # endregion
 
@@ -314,34 +355,34 @@ class Assembly(Serializable):
         R_values = []
         R_indices = []
 
-        for ins in self._instances.keys():
-            Ra_indice, Ra_values = self._instances[ins].structural_stiffness(
+        for ins in self._instances_enabled:
+            Ra_indice, Ra_values = ins.structural_stiffness(
                 RGC=RGC, if_onlyforce=True)
             R_values.append(Ra_values)
             R_indices.append(Ra_indice)
         t1 = time.time()
 
         ff = []
-        for f in self._loads.values():
+        for f in self._loads_enabled:
             Rf_indice, Rf_values = f.get_stiffness(
                 RGC=RGC, if_onlyforce=True)
             R_values.append(-Rf_values)
             R_indices.append(Rf_indice)
 
-            ff.append(torch.zeros(self.RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
+            ff.append(torch.zeros(self._RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
         t2 = time.time()
         # endregion
 
         R_indices = torch.cat(R_indices, dim=0)
         R_values = torch.cat(R_values, dim=0)
 
-        R0 = torch.zeros(self.RGC_list_indexStart[-1])
+        R0 = torch.zeros(self._RGC_list_indexStart[-1])
         # Convert R_indices to int64 explicitly for scatter operation
         R0.scatter_add_(0, R_indices.to(torch.int64), R_values)
         t0 = time.time()
         R = R0
         #region consider the constraints
-        for c in self._constraints.values():
+        for c in self._constraints_enabled:
             R_new = c.modify_R_K(
                 RGC, R0, if_onlyforce=True)
             R = R + R_new
@@ -350,7 +391,7 @@ class Assembly(Serializable):
 
         # get the global stiffness matrix and force vector
 
-        R = R[self.RGC_remain_index_flatten]
+        R = R[self._RGC_remain_index_flatten]
 
         t6 = time.time()
         return R
@@ -399,8 +440,8 @@ class Assembly(Serializable):
         R_values = []
         R_indices = []
 
-        for ins in self._instances.keys():
-            Ra_indice, Ra_values, Ka_indice, Ka_value = self._instances[ins].structural_stiffness(
+        for ins in self._instances_enabled:
+            Ra_indice, Ra_values, Ka_indice, Ka_value = ins.structural_stiffness(
                 RGC=RGC)
             K_values.append(Ka_value)
             K_indices.append(Ka_indice)
@@ -409,7 +450,7 @@ class Assembly(Serializable):
         t1 = time.time()
 
         ff = []
-        for f in self._loads.values():
+        for f in self._loads_enabled:
             Rf_indice, Rf_values, Kf_indice, Kf_value = f.get_stiffness(
                 RGC=RGC)
             K_values.append(-Kf_value)
@@ -417,7 +458,7 @@ class Assembly(Serializable):
             R_values.append(-Rf_values)
             R_indices.append(Rf_indice)
 
-            ff.append(torch.zeros(self.RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
+            ff.append(torch.zeros(self._RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
         t2 = time.time()
         # endregion
 
@@ -426,7 +467,7 @@ class Assembly(Serializable):
         R_indices = torch.cat(R_indices, dim=0)
         R_values = torch.cat(R_values, dim=0)
 
-        R0 = torch.zeros(self.RGC_list_indexStart[-1])
+        R0 = torch.zeros(self._RGC_list_indexStart[-1])
         # Convert R_indices to int64 explicitly for scatter operation
         R0.scatter_add_(0, R_indices.to(torch.int64), R_values)
         return R0, K_indices, K_values
@@ -437,7 +478,7 @@ class Assembly(Serializable):
         t0 = time.time()
         R = R0
         #region consider the constraints
-        for c in self._constraints.values():
+        for c in self._constraints_enabled:
             R_new, Kc_indices, Kc_values = c.modify_R_K(
                 RGC, R0, K_indices, K_values)
             K_indices = torch.cat([K_indices, Kc_indices], dim=1)
@@ -447,8 +488,8 @@ class Assembly(Serializable):
         #endregion
 
         # get the global stiffness matrix and force vector
-        index_remain = self.RGC_remain_index_flatten[K_indices[0].cpu(
-        )] & self.RGC_remain_index_flatten[K_indices[1].cpu()]
+        index_remain = self._RGC_remain_index_flatten[K_indices[0].cpu(
+        )] & self._RGC_remain_index_flatten[K_indices[1].cpu()]
         K_values = K_values[index_remain]
         K_indices = K_indices[:, index_remain]
         t44 = time.time()
@@ -458,7 +499,7 @@ class Assembly(Serializable):
 
         t5 = time.time()
 
-        R = R[self.RGC_remain_index_flatten]
+        R = R[self._RGC_remain_index_flatten]
 
         t6 = time.time()
         return R, K_indices, K_values
@@ -482,11 +523,11 @@ class Assembly(Serializable):
 
         # structural energy
         energy = 0
-        for ins in self._instances.values():
+        for ins in self._instances_enabled:
             energy = energy + ins.potential_energy(RGC=RGC)
 
         # force potential
-        for f in self._loads.values():
+        for f in self._loads_enabled:
             energy = energy - f.get_potential_energy(RGC=RGC)
 
         return energy
@@ -496,11 +537,11 @@ class Assembly(Serializable):
     # region for Dynamic Mass Matrix
 
     def assemble_mass_matrix(self, GC_now: torch.Tensor):
-        mass_indices = [self.mass_matrix_indices]
-        mass_values = [self.mass_matrix_values]
+        mass_indices = [self._mass_matrix_indices]
+        mass_values = [self._mass_matrix_values]
         RGC = self._GC2RGC(GC_now)
-        for c in self._constraints.values():
-            indices_now, values_now = c.modify_mass_matrix(mass_indices=self.mass_matrix_indices, mass_values=self.mass_matrix_values, RGC=RGC)
+        for c in self._constraints_enabled:
+            indices_now, values_now = c.modify_mass_matrix(mass_indices=self._mass_matrix_indices, mass_values=self._mass_matrix_values, RGC=RGC)
             mass_indices.append(indices_now)
             mass_values.append(values_now)
 
@@ -508,8 +549,8 @@ class Assembly(Serializable):
         mass_values = torch.cat(mass_values, dim=0)
 
         # get the global stiffness matrix and force vector
-        index_remain = self.RGC_remain_index_flatten[mass_indices[0].cpu(
-        )] & self.RGC_remain_index_flatten[mass_indices[1].cpu()]
+        index_remain = self._RGC_remain_index_flatten[mass_indices[0].cpu(
+        )] & self._RGC_remain_index_flatten[mass_indices[1].cpu()]
         mass_values = mass_values[index_remain]
         mass_indices = mass_indices[:, index_remain]
         t44 = time.time()
@@ -534,13 +575,13 @@ class Assembly(Serializable):
         None
         """
 
-        index_now = len(self.RGC)
+        index_now = len(self._RGC)
 
-        self.RGC.append(torch.randn(size) * 0)
-        self.RGC_remain_index.append(np.zeros(size, dtype=bool))
+        self._RGC.append(torch.randn(size) * 0)
+        self._RGC_remain_index.append(np.zeros(size, dtype=bool))
         self._RGC_size.append(size)
-        self.RGC_list_indexStart.append(
-            self.RGC_list_indexStart[-1] + np.prod(size))
+        self._RGC_list_indexStart.append(
+            self._RGC_list_indexStart[-1] + np.prod(size))
 
         return index_now
 
@@ -555,22 +596,22 @@ class Assembly(Serializable):
             list: The reduced global control vector (RGC).
         """
         RGC = []
-        for i in range(len(self.RGC_remain_index)):
+        for i in range(len(self._RGC_remain_index)):
             RGC.append(torch.zeros(self._RGC_size[i]))
-            RGC[-1][self.RGC_remain_index[i]] = GC[
+            RGC[-1][self._RGC_remain_index[i]] = GC[
                 self._GC_list_indexStart[i]:self._GC_list_indexStart[i + 1]]
 
-        for c in self._constraints.values():
+        for c in self._constraints_enabled:
             RGC = c.modify_RGC(RGC)
 
-        for b in self._boundarys.values():
+        for b in self._boundarys_enabled:
             RGC = b.modify_RGC(RGC)
 
         return RGC
 
     def _RGC2GC(self, RGC: list[torch.Tensor]):
         GC = torch.cat([
-            RGC[i][self.RGC_remain_index[i]].flatten() for i in range(len(RGC))
+            RGC[i][self._RGC_remain_index[i]].flatten() for i in range(len(RGC))
         ],
                        dim=0)
         return GC
@@ -732,6 +773,7 @@ class Assembly(Serializable):
         else:
             raise ValueError(f"Load '{name}' not found in the model.")
 
+
     def delete_load(self, name: str):
         """
         Delete a load from the FEA model.
@@ -756,34 +798,117 @@ class Assembly(Serializable):
         """
         self._loads.clear()
 
-    def get_load_parameters(self) -> dict[str, torch.Tensor]:
+    def get_object(self, name: str, obj_type: str = 'auto'):
+        """
+        Retrieve an object from the assembly by its name.
+
+        Args:
+            name (str): The object name.
+            obj_type (str): One of 'auto', 'instance', 'rp', 'load', 'constraint', 'boundary'.
+                If 'auto', search all supported object containers and return the unique match.
+
+        Returns:
+            object: The requested assembly object.
+        """
+        containers = {
+            'instance': self._instances,
+            'rp': self._reference_points,
+            'load': self._loads,
+            'constraint': self._constraints,
+            'boundary': self._boundarys,
+        }
+
+        if obj_type == 'auto':
+            found = []
+            for kind, data in containers.items():
+                if name in data:
+                    found.append((kind, data[name]))
+            if len(found) == 0:
+                raise ValueError(
+                    f"Object '{name}' not found in instance/rp/load/constraint/boundary."
+                )
+            if len(found) > 1:
+                kinds = [item[0] for item in found]
+                raise ValueError(
+                    f"Object name '{name}' is ambiguous in {kinds}. Please set obj_type explicitly."
+                )
+            return found[0][1]
+
+        if obj_type not in containers:
+            raise ValueError("obj_type must be one of {'auto', 'instance', 'rp', 'load', 'constraint', 'boundary'}")
+
+        if name not in containers[obj_type]:
+            raise ValueError(f"{obj_type} '{name}' not found in the model.")
+
+        return containers[obj_type][name]
+
+    def get_work_conditions(self) -> WorkCondition:
         """
         Get parameters about all loads in the FEA model.
 
         Returns:
-            dict: A dictionary where keys are load names and values are numpy arrays containing load parameters.
+            WorkCondition: The work condition object containing the parameters.
         """
-        load_info = {}
+        workcondition = WorkCondition()
+
         for name, load in self._loads.items():
-            load_info[name] = load._parameters
-        return load_info
+            workcondition.load_info[name] = load._parameters
+
+        for name, ins in self._instances.items():
+            workcondition.ins_enabled[name] = ins.enabled
+        for name, f in self._loads.items():
+            workcondition.load_enabled[name] = f.enabled
+        for name, c in self._constraints.items():
+            workcondition.constraint_enabled[name] = c.enabled
+        for name, b in self._boundarys.items():
+            workcondition.boundary_enabled[name] = b.enabled
+
+        return workcondition
     
-    def set_load_parameters(self, load_info: dict[str, torch.Tensor]):
+    def set_work_conditions(self, workcondition: WorkCondition):
         """
         Set parameters for loads in the FEA model.
 
         Args:
-            load_info (dict): A dictionary where keys are load names and values are torch tensors containing load parameters.
+            workcondition (WorkCondition): The work condition object containing the parameters.
 
         Returns:
             None
         """
+        load_info = workcondition.load_info
         for name, info in load_info.items():
             if name in self._loads:
                 self._loads[name]._parameters = info
             else:
                 raise ValueError(f"Load '{name}' not found in the model.")
+            
+        for name, enabled in workcondition.ins_enabled.items():
+            if name in self._instances:
+                self._instances[name].enabled = enabled
+            else:
+                raise ValueError(f"Instance '{name}' not found in the model.")
+            
+        for name, enabled in workcondition.load_enabled.items():
+            if name in self._loads:
+                self._loads[name].enabled = enabled
+            else:
+                raise ValueError(f"Load '{name}' not found in the model.")
+            
+        for name, enabled in workcondition.constraint_enabled.items():
+            if name in self._constraints:
+                self._constraints[name].enabled = enabled
+            else:
+                raise ValueError(f"Constraint '{name}' not found in the model.")
+            
+        for name, enabled in workcondition.boundary_enabled.items():
+            if name in self._boundarys:
+                self._boundarys[name].enabled = enabled
+            else:
+                raise ValueError(f"Boundary '{name}' not found in the model.")
 
+        self.define_required_DoFs()
+
+        
     def add_constraint(self,
                        constraint: constraints.BaseConstraint,
                        name: str = None):

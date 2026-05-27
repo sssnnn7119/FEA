@@ -60,13 +60,13 @@ class StaticImplicitSolver(BaseSolver):
         t0 = time.time()
         # start the iteration
         if GC0 is None:
-            GC0 = self.assembly.GC
+            GC0 = self.assembly._GC
         with torch.no_grad():
             solve_output = self._solve_iteration(GC=GC0, tol_error=self.tol_error)
 
         GC_final, total_time_iter, time_items, converged = solve_output
-        self.assembly.GC = GC_final
-        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(GC_final))
+        self.assembly._GC = GC_final
+        self.assembly._RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(GC_final))
         t2 = time.time()
 
         # print the information
@@ -78,7 +78,7 @@ class StaticImplicitSolver(BaseSolver):
         # build the result object
         fe_result = StaticResult(
             GC=GC_final,
-            load_params=self.assembly.get_load_parameters(),
+            work_conditions=self.assembly.get_work_conditions(),
             total_time=total_time_iter,
             time_items=time_items,
             converged=converged,
@@ -102,7 +102,7 @@ class StaticImplicitSolver(BaseSolver):
                 shape: (num_dofs, num_load_params).
         """
         # set the load parameters to the assembly
-        self.assembly.set_load_parameters(result.load_params)
+        self.assembly.set_work_conditions(result.work_conditions)
 
         # if load_names is None, compute for all loads
         if load_names is None:
@@ -227,7 +227,7 @@ class StaticImplicitSolver(BaseSolver):
         """
         try:
             # 0. Set load parameters
-            self.assembly.set_load_parameters(fe_result.load_params)
+            self.assembly.set_work_conditions(fe_result.work_conditions)
 
             # 1. Factorize system if needed
             if fe_result.if_factorized is False:
@@ -306,141 +306,15 @@ class StaticImplicitSolver(BaseSolver):
             torch.Tensor: The sensitivity of the objective with respect to design variables.
                 Shape matches `design_vars`.
         """
-        try:
-            # 0. Set load parameters and prepare jacobian
-            self.assembly.set_load_parameters(fe_result.load_params)
+        objfuncs = lambda fe_results, assembly: compute_objective_func(fe_results[0], assembly)
+        return self.get_jacobian_sensitivity_multistep(
+            fe_results=[fe_result],
+            design_vars=design_vars,
+            load_names=load_names,
+            apply_func=apply_func,
+            compute_objective_funcs=objfuncs,
+            )
 
-            # 1. Factorize system if needed
-            if fe_result.if_factorized is False:
-                fe_result.factorize_stiffness_matrix(assembly=self.assembly)
-
-            # 2. Prepare Jacobian
-            if fe_result.jacobian.keys() >= set(load_names):
-                jacobian_dict = fe_result.jacobian
-            else:                
-                jacobian_dict = self.get_jacobian(result=fe_result, load_names=load_names)
-                fe_result.jacobian = jacobian_dict
-
-            if len(jacobian_dict.keys()) == 0:
-                jacobian = torch.zeros((fe_result.GC.numel(), 0), device=fe_result.GC.device, dtype=fe_result.GC.dtype)
-            else:
-                jacobian = torch.cat([jacobian_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
-
-            # 3. Prepare Autograd graph
-            design_vars_grad = design_vars.clone().detach().requires_grad_(True)
-            GC_grad = fe_result.GC.clone().detach().requires_grad_(True)
-            jacobian_grad = {k: v.detach().clone().requires_grad_(True) for k, v in jacobian_dict.items()}
-            fe_result.GC = GC_grad  # Use GC_grad for the assembly to track gradients through R and K
-            fe_result.jacobian = jacobian_grad  # Use jacobian_grad to track gradients through the Jacobian
-            
-            # 4. Apply Design Variables
-            apply_func(self.assembly, design_vars_grad)
-            self.assembly.initialize()
-            R_grad = self.assembly.assemble_force(GC=fe_result.GC)
-
-            # 5. Compute first adjoint vector W0
-            objective = compute_objective_func(fe_result, self.assembly)
-
-            # 6. Get Ldx and Ldy for the adjoint solve
-            objective.backward(retain_graph=True)
-            if GC_grad.grad is None:
-                Ldx = torch.zeros_like(GC_grad)
-            else:
-                Ldx = GC_grad.grad.clone().detach()
-
-            if len(load_names) > 0:
-                Ldy_dict = {k: v.grad.clone().detach() if v.grad is not None else torch.zeros_like(v) for k, v in jacobian_grad.items()}
-                Ldy = torch.cat([Ldy_dict[load_name] for load_name in load_names], dim=1).detach() # Shape: (num_dofs, num_load_params)
-            else:
-                Ldy = torch.zeros((GC_grad.numel(), 0), device=GC_grad.device, dtype=GC_grad.dtype)
-
-            # 7. sensitivity for GC
-            W0 = -fe_result.K_solver.solve(fe_result.K_sp, Ldx.cpu().numpy())
-            W0_tensor = torch.tensor(W0, dtype=GC_grad.dtype, device=GC_grad.device)
-
-            # 8. For each parameter, compute the Jacobian sensitivity using the chain rule:
-
-            ## get the current load parameters as a single tensor
-            total_load_params_list = []
-            for load_name in load_names:
-                load = self.assembly._loads[load_name]
-                total_load_params_list.append(load._parameters.flatten())
-
-            if len(total_load_params_list) > 0:
-                total_load_params = torch.cat(total_load_params_list, dim=0)
-            else:
-                total_load_params = torch.zeros((0,), device=GC_grad.device, dtype=GC_grad.dtype)
-            num_load_params = total_load_params.numel()
-
-            obj_part_y = torch.zeros(1, device=GC_grad.device, dtype=GC_grad.dtype)
-            K_indices = self.assembly.assemble_Stiffness_Matrix(GC=fe_result.GC)[1]
-            wKdp = torch.zeros_like(fe_result.GC)
-            for para_idx in range(num_load_params):
-                ### compute the Jacobian sensitivity using the chain rule:
-                Ldy_now = Ldy[:, para_idx]
-                if Ldy_now.abs().sum() < 1e-8:
-                    continue
-
-
-                W1 = fe_result.K_solver.solve(fe_result.K_sp, Ldy_now.cpu().numpy())
-                W1_tensor = torch.tensor(W1, dtype=GC_grad.dtype, device=GC_grad.device)
-                ### evaluate the stiffness matrix sensitivity dK/dPara using autograd
-                def get_Kdp(load_now: torch.Tensor):
-                    GC_now = fe_result.GC + jacobian[:, para_idx] * (load_now - load_now.detach())
-                    index_now = 0
-                    for load_name in load_names:
-                        load = self.assembly._loads[load_name]
-                        param_len = load._parameters.numel()
-                        idx_now = para_idx - index_now
-                        if 0 <= idx_now < param_len:
-                            load._parameters[idx_now] = load_now
-                            break
-                        index_now += param_len
-                    K_values = self.assembly.assemble_Stiffness_Matrix(GC=GC_now)[2]
-                    return K_values
-                Kdp_values = torch.autograd.functional.jvp(
-                    get_Kdp, total_load_params[para_idx: para_idx+1], torch.ones([1]), create_graph=False)[1]
-                Kdp = torch.sparse_coo_tensor(K_indices, Kdp_values, size=fe_result.K_sp.shape)
-
-                wKdp += Kdp@ W1_tensor
-
-                ### evaluate the stiffness matrix sensitivity dR/dPara using autograd
-                def get_Rdp(load_now: torch.Tensor):
-                    GC_now = GC_grad + jacobian[:, para_idx] * (load_now - load_now.detach())
-                    index_now = 0
-                    for load_name in load_names:
-                        load = self.assembly._loads[load_name]
-                        param_len = load._parameters.numel()
-                        idx_now = para_idx - index_now
-                        if 0 <= idx_now < param_len:
-                            load._parameters[idx_now] = load_now
-                            break
-                        index_now += param_len
-                    R = self.assembly.assemble_force(GC=GC_now)
-                    return (R * W1_tensor).sum()
-
-                obj_part_y -= torch.autograd.functional.jacobian(get_Rdp, total_load_params[para_idx: para_idx+1], create_graph=True)
-
-            if wKdp.abs().sum() > 1e-8:
-                wKdpKinv = fe_result.K_solver.solve(fe_result.K_sp, wKdp.cpu().numpy())
-            else:
-                wKdpKinv = torch.zeros_like(wKdp)
-            wKdpKinv_tensor = torch.tensor(wKdpKinv, dtype=GC_grad.dtype, device=GC_grad.device)
-            
-            obj_part_x = ((W0_tensor + wKdpKinv_tensor) * R_grad).sum()
-
-            obj_total = obj_part_x + obj_part_y
-            obj_total.backward()
-            sensitivity = design_vars_grad.grad.clone().detach()
-
-        finally:            
-            # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
-            self._detach_recursive(self.assembly)
-            self._detach_recursive(fe_result)
-            fe_result.remove_stored_factorization()
-
-        return sensitivity
-    
     def get_jacobian_sensitivity_multistep(        
         self,
         fe_results: list[StaticResult],
@@ -482,7 +356,7 @@ class StaticImplicitSolver(BaseSolver):
             # 0. Set gradient required for each step's GC and Jacobians
             for idx, fe_result in enumerate(fe_results):
                 # 0. Set load parameters and prepare jacobian
-                self.assembly.set_load_parameters(fe_result.load_params)
+                self.assembly.set_work_conditions(fe_result.work_conditions)
 
                 # 1. Factorize system if needed
                 if fe_result.if_factorized is False:
@@ -511,7 +385,7 @@ class StaticImplicitSolver(BaseSolver):
             print(f" -Step 0/{len(fe_results)} sensitivity computed.\r", end='')
             for idx, fe_result in enumerate(fe_results):
                 # Each step must use its own load state when assembling R, dR/dp and dK/dp.
-                self.assembly.set_load_parameters(fe_result.load_params)
+                self.assembly.set_work_conditions(fe_result.work_conditions)
                 
                 # 6. Get R for the current step
                 R_grad = self.assembly.assemble_force(GC=fe_result.GC)

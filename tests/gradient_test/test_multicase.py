@@ -64,17 +64,17 @@ if not os.path.exists(current_path + '/%s_results.npy' % name):
     for pind in range(len(pressure_list[0])):
         fe.assembly._loads['pressure-%d'%(pind+1)].pressure = pressure_list[0][pind]
     fe.solve(tol_error=1e-6)
-    GC0_list.append(fe.assembly.GC.clone().detach())
+    GC0_list.append(fe.assembly._GC.clone().detach())
 
     for pind in range(len(pressure_list[0])):
         fe.assembly._loads['pressure-%d'%(pind+1)].pressure = pressure_list[1][pind]
     fe.solve(tol_error=1e-6)
-    GC0_list.append(fe.assembly.GC.clone().detach())
+    GC0_list.append(fe.assembly._GC.clone().detach())
 
     np.save(current_path + '/%s_results' % name, np.array([gc.cpu().numpy() for gc in GC0_list]))
 else:
     GC0_list_np = np.load(current_path + '/%s_results.npy' % name)
-    GC0_list = [torch.from_numpy(gc).to(fe.assembly.GC.device).type(fe.assembly.GC.dtype) for gc in GC0_list_np]
+    GC0_list = [torch.from_numpy(gc).to(fe.assembly._GC.device).type(fe.assembly._GC.dtype) for gc in GC0_list_np]
 
 GC0_list = torch.stack(GC0_list, dim=0)
 
@@ -93,8 +93,8 @@ def closure_work(nodes_diff: torch.Tensor):
     work = closure_adj(GC0_list).to(part.nodes.device)
     for i in range(GC0_list.shape[0]):
         GC0 = GC0_list[i].to(part.nodes.device)
-        fe.assembly.GC = GC0
-        fe.assembly.RGC = fe.assembly._GC2RGC(GC0)
+        fe.assembly._GC = GC0
+        fe.assembly._RGC = fe.assembly._GC2RGC(GC0)
 
         for pind in range(len(pressure_list[0])):
             fe.assembly._loads['pressure-%d'%(pind+1)].pressure = pressure_list[i][pind]
@@ -121,7 +121,7 @@ for i in range(len(GC0_list)):
     K_sp = sp.coo_matrix(
         (K_values.cpu().numpy(),
             (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())),
-        shape=(fe.assembly.GC.shape[0], fe.assembly.GC.shape[0])).tocsr()
+        shape=(fe.assembly._GC.shape[0], fe.assembly._GC.shape[0])).tocsr()
     K_solver = pypardiso.PyPardisoSolver()
     K_solver.factorize(K_sp)
 
@@ -157,13 +157,13 @@ for i in range(index_test[0].shape[0]):
     for pind in range(len(pressure_list[0])):
         fe.assembly._loads['pressure-%d'%(pind+1)].pressure = pressure_list[0][pind]
     fe.solve(tol_error=1e-6, GC0=GC0_list[0])
-    GC1 = fe.assembly.GC.clone().detach()
+    GC1 = fe.assembly._GC.clone().detach()
     GC1_list.append(GC1)
     
     for pind in range(len(pressure_list[0])):
         fe.assembly._loads['pressure-%d'%(pind+1)].pressure = pressure_list[1][pind]
     fe.solve(tol_error=1e-6, GC0=GC0_list[1])
-    GC1 = fe.assembly.GC.clone().detach()
+    GC1 = fe.assembly._GC.clone().detach()
     GC1_list.append(GC1)
 
     diff = (closure_adj(GC1_list) - Rf0) / epsilon

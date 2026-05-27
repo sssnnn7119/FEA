@@ -64,7 +64,7 @@ K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
 K_sp = sp.coo_matrix(
     (K_values.cpu().numpy(),
         (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())),
-    shape=(fe.assembly.GC.shape[0], fe.assembly.GC.shape[0])).tocsr()
+    shape=(fe.assembly._GC.shape[0], fe.assembly._GC.shape[0])).tocsr()
 K_solver = pypardiso.PyPardisoSolver()
 K_solver.factorize(K_sp)
 

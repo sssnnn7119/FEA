@@ -6,7 +6,7 @@ import importlib
 from .interfaces import Serializable
 from .inp import FEA_INP
 from .controller import FEAController, load_model, retrieve_source_code
-from .model import Part, Instance, ReferencePoint, Assembly
+from .model import Part, Instance, ReferencePoint, Assembly, WorkCondition
 from .model import materials, elements, loads, constraints, surfaces, boundarys
 from . import solver
 

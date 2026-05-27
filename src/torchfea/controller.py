@@ -119,6 +119,40 @@ class FEAController(Serializable):
         else:
             np.savez_compressed(path, data = serialized_data)
 
+    def GC2RGC(self, GC: torch.Tensor) -> list[torch.Tensor]:
+        """
+        Convert global coordinates (GC) to reduced global coordinates (RGC).
+
+        Args:
+            GC (torch.Tensor): The global coordinates.
+
+        Returns:
+            list[torch.Tensor]: The reduced global coordinates.
+        """
+        return self.assembly._GC2RGC(GC)
+    
+    def RGC2GC(self, RGC: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Convert reduced global coordinates (RGC) to global coordinates (GC).
+
+        Args:
+            RGC (list[torch.Tensor]): The reduced global coordinates.
+
+        Returns:
+            torch.Tensor: The global coordinates.
+        """
+        return self.assembly._RGC2GC(RGC)
+
+    def set_work_conditions(self, work_conditions: dict[str, torch.Tensor]) -> None:
+        """
+        Set the work conditions for the finite element analysis.
+
+        Args:
+            work_conditions (WorkConditions): The work conditions to set.
+
+        """
+        self.assembly.set_work_conditions(work_conditions)
+
 def load_model(path: str) -> FEAController:
     """
     Load a finite element model from a file.

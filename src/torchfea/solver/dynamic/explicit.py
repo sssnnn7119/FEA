@@ -72,9 +72,9 @@ class DynamicExplicitSolver(BaseSolver):
 
         # 1. 设置初始条件
         if GC0 is None:
-            GC0 = self.assembly.GC.clone()
+            GC0 = self.assembly._GC.clone()
         if GV0 is None:
-            GV0 = torch.zeros_like(self.assembly.GC)
+            GV0 = torch.zeros_like(self.assembly._GC)
 
         # 2. 计算初始加速度 a_0 = M⁻¹ * (F_ext(0) - F_int(u_0))
         # F_int(u_0) 通常为0，除非有预应力
@@ -139,7 +139,7 @@ class DynamicExplicitSolver(BaseSolver):
 
         # 6. 结束
         self.GC = self._GC_list[-1]
-        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly.GC))
+        self.assembly._RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly._GC))
         t_end = time.time()
         print('---' * 8, 'Explicit FEA Finished', '---' * 8)
         print(f'Total steps: {iteration}, Total time: {t_end - t_start:.2f} s')
@@ -149,7 +149,7 @@ class DynamicExplicitSolver(BaseSolver):
             GV_list=self._GV_list,
             GA_list=self._GA_list,
             time_list=self._time_list,
-            load_params=self.assembly.get_load_parameters(),
+            load_params=self.assembly.get_work_conditions(),
             total_time=t_end - t_start
         )
         return result

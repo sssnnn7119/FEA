@@ -60,7 +60,7 @@ class Pressure(BaseLoad):
         super().initialize(assembly)
 
         self._load_index = self._assembly.get_instance(self.instance_name)._RGC_index
-        index_offset = self._assembly.RGC_list_indexStart[self._load_index]
+        index_offset = self._assembly._RGC_list_indexStart[self._load_index]
 
         self.surface_element = assembly.get_instance(self.instance_name).surfaces.get_elements(self.surface_set)
 

@@ -32,8 +32,8 @@ class BaseBoundary(BaseObj):
 				   K_indices: torch.Tensor = None, K_values: torch.Tensor = None,
 				   if_onlyforce: bool = False, *args, **kwargs):
 		if if_onlyforce:
-			return torch.zeros(self._assembly.RGC_list_indexStart[-1])
-		return (torch.zeros(self._assembly.RGC_list_indexStart[-1]),
+			return torch.zeros(self._assembly._RGC_list_indexStart[-1])
+		return (torch.zeros(self._assembly._RGC_list_indexStart[-1]),
 				torch.zeros([2, 0], dtype=torch.int64),
 				torch.zeros([0]))
 

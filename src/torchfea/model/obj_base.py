@@ -37,6 +37,9 @@ class BaseObj(Serializable):
         self._assembly: Assembly = None
         """The assembly this object belongs to."""
 
+        self.enabled: bool = True
+        """Whether this object is enabled for analysis."""
+
     @property
     def serialized_attributes(self):
         """Get the list of attributes to be serialized."""
@@ -65,7 +68,7 @@ class BaseObj(Serializable):
 
     def initialize(self, assembly: Assembly):
         self._assembly = assembly
-        self._index_start = assembly.RGC_list_indexStart[self._RGC_index]
+        self._index_start = assembly._RGC_list_indexStart[self._RGC_index]
         
     def initialize_dynamic(self):
         pass

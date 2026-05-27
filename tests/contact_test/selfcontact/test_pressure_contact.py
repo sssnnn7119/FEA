@@ -61,7 +61,7 @@ t1 = time.time()
 fe.solve(tol_error=0.001)
 
 
-print(fe.assembly.GC[-6:])
+print(fe.assembly._GC[-6:])
 print('ok')
 
 
@@ -75,7 +75,7 @@ intern_surf2 = ins1.surfaces.get_elements('surface_2_All')[0]._elems[:, :3].cpu(
 import pyvista as pv
 
 # Get the deformed surface coordinates
-U = fe.assembly.RGC[ins1._RGC_index].cpu().numpy()
+U = fe.assembly._RGC[ins1._RGC_index].cpu().numpy()
 undeformed_surface = ins1.nodes.cpu().numpy()
 deformed_surface = undeformed_surface + U
 

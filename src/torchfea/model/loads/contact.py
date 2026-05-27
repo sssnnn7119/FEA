@@ -657,7 +657,7 @@ class ContactSelf(ContactBase):
             index_now += batch_size
         
         
-        index_start = self._assembly.RGC_list_indexStart[instance._RGC_index]
+        index_start = self._assembly._RGC_list_indexStart[instance._RGC_index]
         pdU_indices = torch.cat(pdU_indices_total, dim=0)
         pdU_values = torch.cat(pdU_values_total, dim=0)
 
@@ -1112,8 +1112,8 @@ class Contact(ContactBase):
             pdU_values = torch.cat([pdUe_values1.flatten(), pdUe_values2.flatten()], dim=0)
 
             tri_ind = point_pairs
-            index_start1 = self._assembly.RGC_list_indexStart[instance1._RGC_index]
-            index_start2 = self._assembly.RGC_list_indexStart[instance2._RGC_index]
+            index_start1 = self._assembly._RGC_list_indexStart[instance1._RGC_index]
+            index_start2 = self._assembly._RGC_list_indexStart[instance2._RGC_index]
 
             pdU_indices1 = self.surface_element1._elems[tri_ind[0]].to(torch.int64)
             pdU_indices1 = torch.stack([pdU_indices1*3, pdU_indices1*3+1, pdU_indices1*3+2], dim=-1) + index_start1

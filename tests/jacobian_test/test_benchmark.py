@@ -52,14 +52,14 @@ fearesult = fe.solve(tol_error=0.01)
 
 jacobian = fe.solver.get_jacobian(result=fearesult)
 
-GC0 = fe.assembly.GC.clone()
+GC0 = fe.assembly._GC.clone()
 
 perturbation = 1e-4
 
 pressure_load.pressure += perturbation
 
 fe.solve(GC0=GC0, if_initialize=False)
-GC1 = fe.assembly.GC.clone()
+GC1 = fe.assembly._GC.clone()
 
 # check jacobian
 GC_diff = (GC1 - GC0).cpu().numpy() / perturbation

@@ -52,12 +52,12 @@ t1 = time.time()
 fe.initialize()
 if not os.path.exists(current_path + '/%s_results.npy' % name):
     fe.solve(tol_error=1e-6)
-    np.save(current_path + '/%s_results' % name, fe.assembly.GC.cpu().numpy())
+    np.save(current_path + '/%s_results' % name, fe.assembly._GC.cpu().numpy())
 else:
-    fe.assembly.GC = torch.from_numpy(
-        np.load(current_path + '/%s_results.npy' % name)).to(fe.assembly.GC.device).type(fe.assembly.GC.dtype)
+    fe.assembly._GC = torch.from_numpy(
+        np.load(current_path + '/%s_results.npy' % name)).to(fe.assembly._GC.device).type(fe.assembly._GC.dtype)
 
-GC0 = fe.assembly.GC.clone().detach()
+GC0 = fe.assembly._GC.clone().detach()
 RGC0 = fe.assembly._GC2RGC(GC0)
 
 K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
@@ -66,7 +66,7 @@ K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
 K_sp = sp.coo_matrix(
     (K_values.cpu().numpy(),
         (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())),
-    shape=(fe.assembly.GC.shape[0], fe.assembly.GC.shape[0])).tocsr()
+    shape=(fe.assembly._GC.shape[0], fe.assembly._GC.shape[0])).tocsr()
 K_solver = pypardiso.PyPardisoSolver()
 K_solver.factorize(K_sp)
 
@@ -109,7 +109,7 @@ for i in range(index_test[0].shape[0]):
     part.nodes = nodes0.detach().clone()
     part.nodes[indtest1, indtest2] += epsilon
     fe.solve(tol_error=1e-6, RGC0=RGC0)
-    GC1 = fe.assembly.GC.clone().detach()
+    GC1 = fe.assembly._GC.clone().detach()
     R1 = fe.assembly.assemble_Stiffness_Matrix(RGC=fe.assembly._GC2RGC(GC0))[0]
 
     diff = (GC1 - GC0)[index_disp] / epsilon

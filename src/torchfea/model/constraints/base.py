@@ -22,7 +22,7 @@ class BaseConstraint(BaseObj):
 
         R = torch.sparse_coo_tensor(indices=[[]],
                                     values=[],
-                                    size=[self._assembly.RGC_list_indexStart[-1]])
+                                    size=[self._assembly._RGC_list_indexStart[-1]])
         if if_onlyforce:
             return R
         return R, torch.zeros([2, 0], dtype=torch.int64), torch.zeros([0])

@@ -12,7 +12,7 @@ import torchfea
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
 
-torch.set_default_device(torch.device('cuda'))
+torch.set_default_device(torch.device('cpu'))
 torch.set_default_dtype(torch.float64)
 
 
@@ -83,9 +83,9 @@ def compute_objective_jacobian(fe_results: list[torchfea.solver.StaticResult],
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    assembly.set_load_parameters(feresult1.load_params)
+    assembly.set_work_conditions(feresult1.work_conditions)
     energy1 = assembly._total_Potential_Energy(GC=fe_results[1].GC)
-    assembly.set_load_parameters(feresult2.load_params)
+    assembly.set_work_conditions(feresult2.work_conditions)
     energy0 = assembly._total_Potential_Energy(GC=fe_results[0].GC)
     print('E1=%f, E0=%f' % (energy1.item(), energy0.item()))
     return fe_results[0].jacobian['pressure-1'][-2, 0] * fe_results[0].GC[-2] * fe_results[0].jacobian['pressure-2'][-2, 0] * \
@@ -134,13 +134,13 @@ for i in range(index_test[0].shape[0]):
 
     load2.pressure = 0.02
     newresult1 = fe.solve(tol_error=1e-6, GC0=feresult1.GC)
-    GC1 = fe.assembly.GC.clone().detach()
+    GC1 = fe.assembly._GC.clone().detach()
     jacobian1 = solver.get_jacobian(newresult1, load_names=['pressure-1', 'pressure-2'])
     newresult1.jacobian = jacobian1
     
     load2.pressure = 0.05
     newresult2 = fe.solve(tol_error=1e-6, GC0=feresult2.GC)
-    GC2 = fe.assembly.GC.clone().detach()
+    GC2 = fe.assembly._GC.clone().detach()
     jacobian2 = solver.get_jacobian(newresult2, load_names=['pressure-1', 'pressure-2'])
     newresult2.jacobian = jacobian2
 

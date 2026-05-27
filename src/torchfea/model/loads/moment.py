@@ -24,7 +24,7 @@ class Moment(BaseLoad):
     def initialize(self, assembly):
         super().initialize(assembly)
         self.rp_index = assembly.get_reference_point(self.rp_name)._RGC_index
-        self._indices_force = torch.arange(assembly.RGC_list_indexStart[self.rp_index]+3, assembly.RGC_list_indexStart[self.rp_index]+6)
+        self._indices_force = torch.arange(assembly._RGC_list_indexStart[self.rp_index]+3, assembly._RGC_list_indexStart[self.rp_index]+6)
 
     def get_stiffness(self,
                 RGC: list[torch.Tensor], if_onlyforce=False, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:

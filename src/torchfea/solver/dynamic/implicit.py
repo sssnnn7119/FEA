@@ -158,10 +158,10 @@ class DynamicImplicitSolver(BaseSolver):
         t0 = time.time()
 
         if GC0 is None:
-            GC0 = self.assembly.GC.clone()
+            GC0 = self.assembly._GC.clone()
 
         if GV0 is None:
-            GV0 = torch.zeros_like(self.assembly.GC)
+            GV0 = torch.zeros_like(self.assembly._GC)
 
         self._GC_list = [GC0]
         self._GV_list = [GV0]
@@ -214,12 +214,12 @@ class DynamicImplicitSolver(BaseSolver):
                 break
         
         self.GC=self._GC_list[-1]
-        self.assembly.RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly.GC))
+        self.assembly._RGC = self.assembly.refine_RGC(self.assembly._GC2RGC(self.assembly._GC))
         t2 = time.time()
 
         # print the information
         print('total_time:%.2f' % (t2 - t0))
-        R = self.assembly.assemble_Stiffness_Matrix(RGC=self.assembly.RGC)[0]
+        R = self.assembly.assemble_Stiffness_Matrix(RGC=self.assembly._RGC)[0]
         print('max_error:%.4e' % (R.abs().max()))
         print('---' * 8, 'FEA Finished', '---' * 8, '\n')
 
@@ -228,7 +228,7 @@ class DynamicImplicitSolver(BaseSolver):
             GV_list=self._GV_list,
             GA_list=self._GA_list,
             time_list=self._time_list,
-            load_params=self.assembly.get_load_parameters(),
+            load_params=self.assembly.get_work_conditions(),
             total_time=t2 - t0
         )
 
@@ -388,7 +388,7 @@ class DynamicImplicitSolver(BaseSolver):
 
             if self._iter_now > self.maximum_iteration:
                 print('maximum iteration reached')
-                self.assembly.GC = GC_now
+                self.assembly._GC = GC_now
                 return False
 
             # calculate the force vector and tangential stiffness matrix
@@ -417,7 +417,7 @@ class DynamicImplicitSolver(BaseSolver):
                     GC_now=GC_now, GC_pre=GC_pre, dGC=dGC, R=R, energy0=energy[-1], deltaT=deltaT)
 
             if alpha==0 and R.abs().max() > tol_error:
-                self.assembly.GC = GC_now
+                self.assembly._GC = GC_now
                 return False
             if alpha==0:
                 break
@@ -433,7 +433,7 @@ class DynamicImplicitSolver(BaseSolver):
             if low_alpha > 10:
                 if R.abs().max() < 1e-3:
                     print('low alpha, but convergence achieved')
-                    self.assembly.GC = GC_now
+                    self.assembly._GC = GC_now
                     break
                 return False
 

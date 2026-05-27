@@ -71,7 +71,7 @@ K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
 K_sp = sp.coo_matrix(
     (K_values.cpu().numpy(),
         (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())),
-    shape=(fe.assembly.GC.shape[0], fe.assembly.GC.shape[0])).tocsr()
+    shape=(fe.assembly._GC.shape[0], fe.assembly._GC.shape[0])).tocsr()
 K_solver = pypardiso.PyPardisoSolver()
 K_solver.factorize(K_sp)
 
@@ -80,7 +80,7 @@ part = fe.assembly.get_part('final_model')
 
 def closure_adj(GC_now: torch.Tensor):
     R = fe.assembly._assemble_generalized_Matrix(RGC=fe.assembly._GC2RGC(GC_now))[0]
-    R_now = R[:fe.assembly.RGC_list_indexStart[1]].reshape([-1, 3])
+    R_now = R[:fe.assembly._RGC_list_indexStart[1]].reshape([-1, 3])
     R_bc = R_now[bc_dof2]
     return R_bc.sum(0)[1]
 
@@ -113,7 +113,7 @@ def compute_objective(fe_result: torchfea.solver.StaticResult,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
     R = assembly._assemble_generalized_Matrix(RGC=fe.assembly._GC2RGC(fe_result.GC))[0]
-    R_now = R[:fe.assembly.RGC_list_indexStart[1]].reshape([-1, 3])
+    R_now = R[:fe.assembly._RGC_list_indexStart[1]].reshape([-1, 3])
     R_bc = R_now[bc_dof2]
     return R_bc.sum(0)[1]
     

@@ -71,7 +71,7 @@ K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
 K_sp = sp.coo_matrix(
     (K_values.cpu().numpy(),
         (K_indices[0].cpu().numpy(), K_indices[1].cpu().numpy())),
-    shape=(fe.assembly.GC.shape[0], fe.assembly.GC.shape[0])).tocsr()
+    shape=(fe.assembly._GC.shape[0], fe.assembly._GC.shape[0])).tocsr()
 K_solver = pypardiso.PyPardisoSolver()
 K_solver.factorize(K_sp)
 
@@ -141,7 +141,7 @@ for i in range(index_test[0].shape[0]):
     part.nodes = nodes0.detach().clone()
     part.nodes[indtest1, indtest2] += epsilon
     fe.solve(tol_error=1e-6, GC0=GC0)
-    GC1 = fe.assembly.GC.clone().detach()
+    GC1 = fe.assembly._GC.clone().detach()
     R1 = fe.assembly.assemble_Stiffness_Matrix(RGC=fe.assembly._GC2RGC(GC0))[0]
     E1 = fe.assembly._total_Potential_Energy(GC=GC1).item()
 

@@ -61,59 +61,26 @@ class Penalty_DoF(BaseLoad):
     def target(self, value: float) -> None:
         self._parameters[1] = value
 
-    def _resolve_obj(self, assembly):
-        containers = {
-            "instance": assembly._instances,
-            "rp": assembly._reference_points,
-            "load": assembly._loads,
-            "constraint": assembly._constraints,
-        }
-
-        if self.obj_type == "auto":
-            found = []
-            for kind, data in containers.items():
-                if self.obj_name in data:
-                    found.append((kind, data[self.obj_name]))
-
-            if len(found) == 0:
-                raise ValueError(
-                    f"Object '{self.obj_name}' not found in instance/rp/load/constraint."
-                )
-            if len(found) > 1:
-                kinds = [item[0] for item in found]
-                raise ValueError(
-                    f"Object name '{self.obj_name}' is ambiguous in {kinds}. Please set obj_type explicitly."
-                )
-            return found[0][1]
-
-        if self.obj_type not in containers:
-            raise ValueError("obj_type must be one of {'auto', 'instance', 'rp', 'load', 'constraint'}")
-
-        if self.obj_name not in containers[self.obj_type]:
-            raise ValueError(f"{self.obj_type} '{self.obj_name}' not found in assembly.")
-
-        return containers[self.obj_type][self.obj_name]
-
-    def _locate_object_local_s(self, assembly):
-        obj = self._resolve_obj(assembly)
+    def _locate_object_local_s(self):
+        obj = self._assembly.get_object(self.obj_name, self.obj_type)
         rgc_idx = obj._RGC_index
 
         if rgc_idx is None:
             raise ValueError(f"Object '{self.obj_name}' does not have a valid _RGC_index.")
 
-        seg_size = int(np.prod(assembly._RGC_size[rgc_idx]))
+        seg_size = int(np.prod(self._assembly._RGC_size[rgc_idx]))
         if self.s < 0 or self.s >= seg_size:
             raise ValueError(
                 f"local s={self.s} out of range for object '{self.obj_name}', segment size={seg_size}"
             )
 
-        global_s = int(assembly.RGC_list_indexStart[rgc_idx]) + self.s
+        global_s = int(self._assembly._RGC_list_indexStart[rgc_idx]) + self.s
         return rgc_idx, self.s, global_s
 
     def initialize(self, assembly):
         super().initialize(assembly)
 
-        rgc_idx, local_flat, global_s = self._locate_object_local_s(assembly)
+        rgc_idx, local_flat, global_s = self._locate_object_local_s()
         self._rgc_list_index = rgc_idx
         self._rgc_local_flat_index = local_flat
         self._global_s = global_s

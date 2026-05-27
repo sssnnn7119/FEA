@@ -79,8 +79,8 @@ class Spring_RP_RP(BaseLoad):
         self._rp_index1 = rp1._RGC_index
         self._rp_index2 = rp2._RGC_index
 
-        s1 = assembly.RGC_list_indexStart[self._rp_index1]
-        s2 = assembly.RGC_list_indexStart[self._rp_index2]
+        s1 = assembly._RGC_list_indexStart[self._rp_index1]
+        s2 = assembly._RGC_list_indexStart[self._rp_index2]
         self._idx_tr1 = torch.arange(s1, s1 + 3, device=assembly.device, dtype=torch.int64)
         self._idx_tr2 = torch.arange(s2, s2 + 3, device=assembly.device, dtype=torch.int64)
 
@@ -189,7 +189,7 @@ class Spring_RP_Point(BaseLoad):
         super().initialize(assembly)
         rp = assembly.get_reference_point(self.rp_name)
         self._rp_index = rp._RGC_index
-        s = assembly.RGC_list_indexStart[self._rp_index]
+        s = assembly._RGC_list_indexStart[self._rp_index]
         self._idx_tr = torch.arange(s, s + 3, device=assembly.device, dtype=torch.int64)
         # Materialize _P on the correct device/dtype via property setter
         self.point = torch.tensor(self.point)
