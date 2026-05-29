@@ -11,7 +11,7 @@ from ...interfaces import Serializable
 
 class BaseElement(Serializable):
     
-    _serialized_attributes: list[str] = ['_elems_index', '_elems', '_density', 'materials']
+    _serialized_attributes_exclude = ['_indices_matrix', '_indices_force', '_index_matrix_coalesce', 'gaussian_weight', 'shape_function_gaussian']
 
     shape_function: list[torch.Tensor]
     """
@@ -38,11 +38,7 @@ class BaseElement(Serializable):
     def __init__(self, elems_index: torch.Tensor, elems: torch.Tensor) -> None:
 
         super().__init__()
-        self.shape_function: list[torch.Tensor]
-        """
-            the shape of shape_function 
-        """
-        
+
         self.shape_function_gaussian: list[torch.Tensor]
         """
             the shape of shape_function at each guassian point

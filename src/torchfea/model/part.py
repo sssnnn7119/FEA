@@ -18,7 +18,7 @@ class _Surfaces(Serializable):
     Class representing a set of surfaces in the finite element model.
     """
 
-    _serialized_attributes = ['_surface_dict']
+    _serialized_attributes_exclude = ['_surface_elements']
 
     def __init__(self):
         self._surface_dict: dict[str, list[tuple[np.ndarray, int]]] = {}
@@ -587,7 +587,7 @@ class Part(Serializable):
 
 class Instance(BaseObj):
 
-    _serialized_attributes = ['part_name', '_translation', '_rotation', 'external_surface']
+    _serialized_attributes_exclude = ['part', ]
     def __init__(self, part_name: str, translation: torch.Tensor = None, rotation: torch.Tensor = None, external_surface: str = '') -> None:
         """
         Create an instance of a part.

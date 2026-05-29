@@ -10,6 +10,9 @@ class Serializable():
     _serialized_attributes: list[str] = []
     """List of attribute names to be serialized."""
 
+    _serialized_attributes_exclude: list[str] = []
+    """List of attribute names to be excluded from serialization."""
+
     _subclasses: dict[str, 'Serializable'] = {}
     """Registry of subclasses for factory method."""
 
@@ -55,6 +58,9 @@ class Serializable():
             serialized_attrs = [attr for attr in self.__dict__.keys() if not attr.startswith('__')]
         else:
             serialized_attrs = self._serialized_attributes
+            
+        # Exclude any attributes that are in the exclude list
+        serialized_attrs = [attr for attr in serialized_attrs if attr not in self._serialized_attributes_exclude]
         return serialized_attrs
     
     @classmethod

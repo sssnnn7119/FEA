@@ -5,8 +5,6 @@ from .base import Materials_Base
 
 class NeoHookean(Materials_Base):
 
-    _serialized_attributes: list[str] = ['_mu', '_kappa']
-
     def __init__(self, mu: torch.Tensor | float,
                  kappa: torch.Tensor | float) -> None:
 

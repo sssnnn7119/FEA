@@ -10,7 +10,7 @@ import torchfea
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
 
-torch.set_default_device(torch.device('cuda'))
+torch.set_default_device(torch.device('cpu'))
 torch.set_default_dtype(torch.float64)
 
 fem = torchfea.FEA_INP()
@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix='torchfea_cache_') as temp_dir:
     print(f'Model size: {os.path.getsize(dir_path) / 1e6:.2f} MB')
     fe_new = torchfea.load_model(dir_path)
 
-    torchfea.retrieve_source_code(dir_path, os.path.join(current_path, 'retrieved_source_code.py'))
+    # torchfea.retrieve_source_code(dir_path, os.path.join(current_path, 'retrieved_source_code.py'))
 
 result = fe_new.solve(tol_error=0.01)
 # result.save('temp.npz')

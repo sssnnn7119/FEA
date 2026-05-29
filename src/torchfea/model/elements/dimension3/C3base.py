@@ -12,7 +12,7 @@ from ..base import BaseElement
 
 class Element_3D(BaseElement):
 
-
+    _serialized_attributes_exclude = BaseElement._serialized_attributes_exclude + ['shape_function_d0_gaussian', 'shape_function_d1_gaussian', 'shape_function_d2_gaussian', '_dNW', '_dNdNW', '_indices_matrix', '_indices_force', '_index_matrix_coalesce', 'gaussian_weight', 'shape_function_gaussian']
 
     num_surfaces: int
     """
