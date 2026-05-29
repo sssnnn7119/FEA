@@ -230,24 +230,27 @@ class Assembly(Serializable):
 
             assembly._instances_enabled = []
             for ins in assembly._instances.values():
-                if ins.enabled:
+                if ins.enabled or (ins.enabled is None):
                     assembly._instances_enabled.append(ins)
+                    ins.enabled = True  # Set default to True if enabled is None
 
             assembly._loads_enabled = []
             for f in assembly._loads.values():
-                if f.enabled:
+                if f.enabled or (f.enabled is None):
                     assembly._loads_enabled.append(f)
+                    f.enabled = True  # Set default to True if enabled is None
 
             assembly._constraints_enabled = []
             for c in assembly._constraints.values():
-                if c.enabled:
+                if c.enabled or (c.enabled is None) :
                     assembly._constraints_enabled.append(c)
+                    c.enabled = True  # Set default to True if enabled is None
 
             assembly._boundarys_enabled = []
             for b in assembly._boundarys.values():
-                if b.enabled:
+                if b.enabled or (b.enabled is None):
                     assembly._boundarys_enabled.append(b)
-
+                    b.enabled = True  # Set default to True if enabled is None
         @staticmethod
         def initialize(assembly: 'Assembly'):
             Assembly._Initializer._sort_objects(assembly)
@@ -908,7 +911,7 @@ class Assembly(Serializable):
 
         self.define_required_DoFs()
 
-        
+
     def add_constraint(self,
                        constraint: constraints.BaseConstraint,
                        name: str = None):

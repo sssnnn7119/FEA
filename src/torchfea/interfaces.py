@@ -75,6 +75,11 @@ class Serializable():
     def _serialize_obj(obj):
         """Helper function to serialize an object."""
         if isinstance(obj, torch.Tensor):
+            obj_np = obj.detach().cpu().numpy()
+            if obj_np.dtype == np.float64 or obj_np.dtype == np.float32:
+                obj_np = obj_np.astype(np.float32)
+            elif obj_np.dtype == np.int64:
+                obj_np = obj_np.astype(np.int32)
             return (obj.detach().cpu().numpy(), type(obj).__name__)
         elif issubclass(type(obj), Serializable):
             return obj._serialize()

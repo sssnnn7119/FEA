@@ -5,12 +5,14 @@ import sys
 
 import numpy as np
 import torch
-import torchfea
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
 
-torch.set_default_device(torch.device('cuda'))
+torch.set_default_device(torch.device('cpu'))
 torch.set_default_dtype(torch.float64)
+
+
+import torchfea
 
 fem = torchfea.FEA_INP()
 # fem.Read_INP(
@@ -21,7 +23,7 @@ fem = torchfea.FEA_INP()
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
 
-fem.read_inp(current_path + '/C3D4.inp')
+fem.read_inp(current_path + '/C3D4Less.inp')
 
 fe = torchfea.from_inp(fem)
 fe.solver = torchfea.solver.StaticImplicitSolver()
