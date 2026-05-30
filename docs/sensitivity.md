@@ -166,6 +166,32 @@ print('计算获得最终的灵敏度:', grad_sensi_jacobian_batch)
 
 注意: 当前 `get_jacobian_sensitivity` 与 `get_jacobian_sensitivity_multistep` 都返回一个 `torch.Tensor`（即最终设计灵敏度）。
 
+### 雅可比矩阵的计算方法
+
+在 `torchfea` 中，雅可比矩阵 $J_{in} = \frac{\partial u_i}{\partial p_n}$ 通过 `StaticImplicitSolver.get_jacobian()` 方法计算。其核心思路是：
+
+1. **组装载荷参数**：将所有指定载荷 $p_n$ 的参数拼合为一个一维张量 `total_params`。
+2. **定义残差闭包**：定义一个函数 `closure_R(total_params)`，将参数设置回载荷对象后调用 `assemble_force` 计算残余力 $R_i$。
+3. **逐列计算 $\partial R_i / \partial p_n$**：对每个载荷参数 $p_n$，利用 `torch.autograd.functional.jvp`（Jacobian-Vector Product）计算残差对参数的偏导数列向量：
+
+   $$
+   \frac{\partial R_i}{\partial p_n} = \text{JVP}(\text{closure\_R}, \text{total\_params}, \boldsymbol{e}_n)
+   $$
+
+   其中 $\boldsymbol{e}_n$ 是第 $n$ 个基向量。这一步等价于对每个参数 $p_n$ 求一次向量-雅可比积，得到 $(\partial R/\partial p_n)$。
+
+4. **求解线性系统**：利用静力分析中已分解（$LDL^T$）的切线刚度矩阵 $K_{ij}$，求解：
+
+   $$
+   K_{ij} \frac{\partial u_j}{\partial p_n} = -\frac{\partial R_i}{\partial p_n}
+   $$
+
+   得到雅可比矩阵的各列 $J_{jn} = \partial u_j / \partial p_n$。
+
+5. **按载荷分组输出**：将计算得到的完整雅可比矩阵按载荷名称拆分为 `dict[str, torch.Tensor]` 返回。
+
+这种方法**逐参数计算** `dR/dp`，每次仅需一次 JVP 和一次回代求解。由于 $K$ 矩阵的分解已在前序静力分析中完成并缓存，每次回代的成本极低。当载荷参数数量 $N_p$ 较少时，该方法非常高效。
+
 --
 
 ## 理论与计算机制 (Theory & Implementation)
@@ -307,3 +333,46 @@ $$
 \frac{\mathrm{d}L}{\mathrm{d}b_m} = 
 \frac{\partial L}{\partial b_m} + \lambda_r \frac{\partial R_r}{\partial b_m} + \lambda_i^{**} \frac{\partial R_i}{\partial b_m} + \lambda_{rn}^{*} \frac{\partial}{\partial b_m} \left( \frac{\mathbf{d}R_r}{\mathbf{d}p_n} \right)
 $$
+
+## 伴随法 vs 直接法 (Adjoint vs Direct Method)
+
+在计算灵敏度时，有两种基本的策略，选择哪一种取决于目标函数数量和设计变量数量之间的权衡。
+
+### 伴随法 (Adjoint Method)
+
+**适用场景：目标函数（约束）少，设计变量多。** 例如拓扑优化中，通常只有少数几个目标（如柔度最小化、屈曲因子最大化），但设计变量可能是数十万乃至百万级的单元密度。
+
+**原理：** 求解伴随方程 $\boldsymbol{K} \boldsymbol{\lambda} = -\partial L / \partial \boldsymbol{u}$，得到一个伴随向量 $\boldsymbol{\lambda}$，然后通过一次反向传播（`work.backward()`）计算对所有设计变量的梯度。
+
+**计算成本：** 每个目标函数只需求解**一次**额外的线性系统（回代），之后获得所有设计变量的梯度。总计算量约为 $O(N_{\text{obj}} \times N_{\text{dof}}^2)$，与设计变量数量 $N_{\text{var}}$ 无关。
+
+**优点：** 设计变量再多，计算量也不增加，极其适合大规模设计空间的问题。
+
+### 直接法 (Direct Method)
+
+**适用场景：目标函数（约束）多，设计变量少。** 例如对少数几个几何参数（长度、角度、厚度等）进行多目标优化，或需要系统响应对少量参数的完整灵敏度矩阵。
+
+**原理：** 直接对平衡方程 $R_i = 0$ 两端对每个设计变量 $b_m$ 求导：
+
+$$
+K_{ik} \frac{\mathrm{d} u_k}{\mathrm{d} b_m} = - \frac{\partial R_i}{\partial b_m}
+$$
+
+每求解一个设计变量 $b_m$，都需要一次回代。若 $K$ 已分解，则每次回代成本很低。
+
+**计算成本：** 总计算量约为 $O(N_{\text{var}} \times N_{\text{dof}}^2)$，与设计变量数量成正比，与目标函数数量无关。
+
+**优点：** 一次计算即可得到所有目标函数对所有设计变量的完整灵敏度矩阵，当目标函数很多时无需为每个目标分别求解伴随方程。
+
+### 对比总结
+
+| 方法 | 适合场景 | 每次求解成本 | 总成本 |
+|:---:|:--------|:------------|:-------|
+| **伴随法** | 目标少、变量多 | 1 次回代 / 目标 | $O(N_{\text{obj}})$ 次回代 |
+| **直接法** | 目标多、变量少 | 1 次回代 / 变量 | $O(N_{\text{var}})$ 次回代 |
+
+在 `torchfea` 中，`get_sensitivity` 采用**伴随法**实现，而 `get_jacobian` 中逐参数计算 `dR/dp` 的做法本质上是**直接法**的思路（每个载荷参数一次回代）。常见的使用模式是：
+
+- 当设计变量（如单元密度、节点坐标）数量远大于目标函数数量时 → **用 `get_sensitivity`（伴随法）**
+- 当需要系统对少数载荷参数（如几个关键载荷大小）的完整灵敏度矩阵时 → **用 `get_jacobian`（直接法）**
+- 当目标函数同时依赖于位移和雅可比矩阵时 → **用 `get_jacobian_sensitivity`（混合方法，结合了伴随法与直接法的思想）**

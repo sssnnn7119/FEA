@@ -23,6 +23,12 @@ class Serializable():
         """Register subclasses in the class registry for factory method."""
         cls._subclasses[cls._get_obj_name()] = cls
         cls._subclass_source_code[cls._get_obj_name()] = cls._get_source_code()
+        mro = inspect.getmro(cls)
+        for klass in mro:
+            if klass is object or not hasattr(klass, '_serialized_attributes_exclude'):
+                continue
+            cls._serialized_attributes_exclude += klass._serialized_attributes_exclude
+            cls._serialized_attributes_exclude = list(set(cls._serialized_attributes_exclude))
 
     @classmethod
     def _get_source_code(cls) -> str:
@@ -58,7 +64,7 @@ class Serializable():
             serialized_attrs = [attr for attr in self.__dict__.keys() if not attr.startswith('__')]
         else:
             serialized_attrs = self._serialized_attributes
-            
+
         # Exclude any attributes that are in the exclude list
         serialized_attrs = [attr for attr in serialized_attrs if attr not in self._serialized_attributes_exclude]
         return serialized_attrs
@@ -86,7 +92,7 @@ class Serializable():
                 obj_np = obj_np.astype(np.float32)
             elif obj_np.dtype == np.int64:
                 obj_np = obj_np.astype(np.int32)
-            return (obj.detach().cpu().numpy(), type(obj).__name__)
+            return (obj_np, type(obj).__name__)
         elif issubclass(type(obj), Serializable):
             return obj._serialize()
         elif isinstance(obj, (int, float, str, bool, type(None))):
