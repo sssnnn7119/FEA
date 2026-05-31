@@ -807,7 +807,7 @@ class StaticImplicitSolver(BaseSolver):
                                                        K_values_preconditioned,
                                                        R_preconditioned,
                                                        x0,
-                                                       tol=1e-5,
+                                                       tol=1e-3,
                                                        max_iter=1200)
         result = dx.to(R.dtype) / diag
         return result
