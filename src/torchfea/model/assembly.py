@@ -1,5 +1,4 @@
-from optparse import Values
-import time
+
 import numpy as np
 import torch
 from . import Instance
@@ -114,6 +113,20 @@ class Assembly(Serializable):
             meshes[ins_name] = mesh
         return meshes
 
+    def _setup_point_picker(self, plotter: pv.Plotter, meshes: dict[str, pv.PolyData]):
+        """Enable point picking that prints the picked point coordinates and index."""
+
+        def callback(picked_point, picker):
+            point_id = picker.GetPointId()
+            if point_id < 0: return
+            point = list(meshes.values())[0].points[point_id]
+            print(f"Node Index: {point_id}, Coordinates: {point}")
+            plotter.add_point_labels([point], [f"ID: {point_id}"], point_size=20, font_size=18, name="picked_label", always_visible=True)
+
+        plotter.enable_point_picking(callback=callback, show_message=True, use_picker=True, show_point=True, color='red', picker='point')
+
+
+
     def show_ins(self, ins_name: str, GC: torch.Tensor = None, surf_name: str = None):
         """
         Visualize the specified instance.
@@ -131,6 +144,7 @@ class Assembly(Serializable):
         pv.global_theme.allow_empty_mesh = True
         plotter = pv.Plotter()
         plotter.add_mesh(mesh, show_edges=True, opacity=1.0, label=ins_name)
+        self._setup_point_picker(plotter, {ins_name: mesh})
         plotter.add_legend()
         plotter.show()
 
@@ -149,6 +163,7 @@ class Assembly(Serializable):
         plotter = pv.Plotter()
         for ins_name, mesh in meshes.items():
             plotter.add_mesh(mesh, show_edges=True, opacity=1.0, label=ins_name)
+        self._setup_point_picker(plotter, meshes)
         plotter.add_legend()
         plotter.show()
     # endregion
@@ -354,7 +369,7 @@ class Assembly(Serializable):
             RGC = self._GC2RGC(GC)
 
         #region evaluate the structural K and R
-        t0 = time.time()
+
         R_values = []
         R_indices = []
 
@@ -363,7 +378,7 @@ class Assembly(Serializable):
                 RGC=RGC, if_onlyforce=True)
             R_values.append(Ra_values)
             R_indices.append(Ra_indice)
-        t1 = time.time()
+
 
         ff = []
         for f in self._loads_enabled:
@@ -373,7 +388,7 @@ class Assembly(Serializable):
             R_indices.append(Rf_indice)
 
             ff.append(torch.zeros(self._RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
-        t2 = time.time()
+
         # endregion
 
         R_indices = torch.cat(R_indices, dim=0)
@@ -382,21 +397,18 @@ class Assembly(Serializable):
         R0 = torch.zeros(self._RGC_list_indexStart[-1])
         # Convert R_indices to int64 explicitly for scatter operation
         R0.scatter_add_(0, R_indices.to(torch.int64), R_values)
-        t0 = time.time()
         R = R0
         #region consider the constraints
         for c in self._constraints_enabled:
             R_new = c.modify_R_K(
                 RGC, R0, if_onlyforce=True)
             R = R + R_new
-        t4 = time.time()
         #endregion
 
         # get the global stiffness matrix and force vector
 
         R = R[self._RGC_remain_index_flatten]
 
-        t6 = time.time()
         return R
     
     def assemble_Stiffness_Matrix(self,
@@ -437,7 +449,6 @@ class Assembly(Serializable):
             RGC = self._GC2RGC(GC)
 
         #region evaluate the structural K and R
-        t0 = time.time()
         K_values = []
         K_indices = []
         R_values = []
@@ -450,7 +461,6 @@ class Assembly(Serializable):
             K_indices.append(Ka_indice)
             R_values.append(Ra_values)
             R_indices.append(Ra_indice)
-        t1 = time.time()
 
         ff = []
         for f in self._loads_enabled:
@@ -462,7 +472,6 @@ class Assembly(Serializable):
             R_indices.append(Rf_indice)
 
             ff.append(torch.zeros(self._RGC_list_indexStart[-1]).scatter_add_(0, Rf_indice.to(torch.int64), Rf_values))
-        t2 = time.time()
         # endregion
 
         K_indices = torch.cat(K_indices, dim=1)
@@ -478,7 +487,7 @@ class Assembly(Serializable):
     def _assemble_reduced_Matrix(self, RGC: list[torch.Tensor],
                                  R0: torch.Tensor, K_indices: torch.Tensor,
                                  K_values: torch.Tensor):
-        t0 = time.time()
+
         R = R0
         #region consider the constraints
         for c in self._constraints_enabled:
@@ -487,7 +496,7 @@ class Assembly(Serializable):
             K_indices = torch.cat([K_indices, Kc_indices], dim=1)
             K_values = torch.cat([K_values, Kc_values])
             R = R + R_new
-        t4 = time.time()
+
         #endregion
 
         # get the global stiffness matrix and force vector
@@ -495,16 +504,14 @@ class Assembly(Serializable):
         )] & self._RGC_remain_index_flatten[K_indices[1].cpu()]
         K_values = K_values[index_remain]
         K_indices = K_indices[:, index_remain]
-        t44 = time.time()
+
 
         K_indices[0] = K_indices[0].unique(return_inverse=True)[1]
         K_indices[1] = K_indices[1].unique(return_inverse=True)[1]
 
-        t5 = time.time()
 
         R = R[self._RGC_remain_index_flatten]
 
-        t6 = time.time()
         return R, K_indices, K_values
 
     def _total_Potential_Energy(self,
@@ -556,7 +563,6 @@ class Assembly(Serializable):
         )] & self._RGC_remain_index_flatten[mass_indices[1].cpu()]
         mass_values = mass_values[index_remain]
         mass_indices = mass_indices[:, index_remain]
-        t44 = time.time()
 
         mass_indices[0] = mass_indices[0].unique(return_inverse=True)[1]
         mass_indices[1] = mass_indices[1].unique(return_inverse=True)[1]

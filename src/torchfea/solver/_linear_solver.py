@@ -2,7 +2,7 @@ import torch
 
 
 @torch.no_grad()
-@torch.jit.script
+@torch.compile
 def conjugate_gradient(A_indices: torch.Tensor,
                         A_values: torch.Tensor,
                         b: torch.Tensor,

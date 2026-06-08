@@ -415,7 +415,8 @@ class Element_3D(BaseElement):
         values = values.scatter_add(0, self._index_matrix_coalesce, M_elem_full.flatten())
 
         return self._indices_matrix, values
-        
+    
+    
     def get_deformation_gradient(self, U: torch.Tensor):
         """
         Calculate the deformation gradient F at Gaussian points for the element.
@@ -507,7 +508,6 @@ class Element_3D(BaseElement):
         
         return Relement, Ka_element
         
-
     def structural_Force(self, RGC: torch.Tensor, rotation_matrix: Optional[torch.Tensor] = None, if_onlyforce: bool = False):
         
         U = RGC

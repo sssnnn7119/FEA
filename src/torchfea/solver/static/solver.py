@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING, Callable
 
-
 if TYPE_CHECKING:
     from ... import Assembly
 import time
@@ -549,7 +548,6 @@ class StaticImplicitSolver(BaseSolver):
 
 
     # region solve iteration
-
     def _line_search(self,
                      GC0: torch.Tensor,
                      dGC: torch.Tensor,
@@ -594,41 +592,9 @@ class StaticImplicitSolver(BaseSolver):
                     energy_new = energy0
                     break
             else:
-                # Rnew = -torch.autograd.grad(energy_new, GCnew)[0]
-                # if torch.dot(Rnew, dGC) > c2 * deltaE:
-                #     beta = alpha
-                #     alpha = 0.6 * (alpha + beta)
-                # elif torch.dot(Rnew, dGC) < -c2 * deltaE:
-                #     beta = alpha
-                #     alpha = 0.4 * (alpha + beta)
-                # else:
                 break
             loopc2 += 1
-            if loopc2 > 20:
-                c2 = 1000000000000000
 
-        # if abs(alpha) < 1e-6:
-        #     # gradient direction line search
-        #     alpha = 1
-        #     dGC = R
-        #     while True:
-        #         GCnew = GC0 + alpha * dGC
-        #         energy_new = self.get_total_energy(
-        #             RGC=self.assembly._GC2RGC(GCnew))
-        #         if energy_new < energy0:
-        #             # pressure *= 1.2
-        #             # pressure = min(pressure0, pressure)
-        #             break
-        #         alpha *= 0.8
-        #         if abs(alpha) < 1e-10:
-        #             alpha = 0.0
-        #             GCnew = GC0.clone()
-        #             energy_new = energy0
-        #             break
-
-        # if abs(alpha) < 1e-3:
-        #     alpha = 1
-        #     GCnew = GC0 + alpha * dGC0
         return alpha, GCnew.detach(), energy_new.detach()
 
     def _solve_iteration(self,

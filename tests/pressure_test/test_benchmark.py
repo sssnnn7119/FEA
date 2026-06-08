@@ -53,24 +53,5 @@ result = fe.solve(tol_error=0.01)
 
 print('ok')
 print(result.GC[-6:])
-
-# extern_surf = fe.loads['pressure-1'].surface_element.cpu().numpy()
-extern_surf = fe.assembly.get_instance('final_model').surfaces.get_elements('surface_0_All')[0]._elems[:, :3].cpu().numpy()
-# extern_surf = fem.part['final_model'].surfaces['surface_1_All']
-
-import pyvista as pv
-
-# Get the deformed surface coordinates
-U = fe.assembly._GC2RGC(result.GC)[0].cpu().numpy()
-undeformed_surface = fem.part['final_model'].nodes[:,1:]
-deformed_surface = undeformed_surface + U
-
-Unorm = (U**2).sum(axis=1)**0.5
-
-# Plot the deformed surface
-faces = np.column_stack([np.full(len(extern_surf), 3), extern_surf])
-mesh = pv.PolyData(deformed_surface, faces)
-mesh['displacement'] = Unorm
-plotter = pv.Plotter()
-plotter.add_mesh(mesh, scalars='displacement')
-plotter.show()
+fe.assembly.get_instance('final_model').external_surface = 'surface_0_All'
+fe.assembly.show_all(GC=result.GC)

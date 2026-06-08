@@ -62,8 +62,8 @@ class Q4(BaseSurface):
         Get the triangular mesh representation of the surface.
         This property returns the element connectivity for Q4 surface elements.
         """
-        return self._elems[:, [0, 1, 2],
-                           [0, 2, 3]]
+        return torch.cat([self._elems[:, [0, 1, 2]],
+                          self._elems[:, [0, 2, 3]]], dim=0)
 
 class Q8(BaseSurface):
     """
@@ -132,9 +132,9 @@ class Q8(BaseSurface):
         Get the triangular mesh representation of the surface.
         This property returns the element connectivity for Q8 surface elements.
         """
-        return self._elems[:, [0, 4, 7],
-                           [1, 5, 4],
-                           [2, 6, 5],
-                           [3, 7, 6],
-                           [7, 4, 5],
-                           [7, 5, 6]]
+        return torch.cat([self._elems[:, [0, 4, 7]],
+                          self._elems[:, [1, 5, 4]],
+                          self._elems[:, [2, 6, 5]],
+                          self._elems[:, [3, 7, 6]],
+                          self._elems[:, [7, 4, 5]],
+                          self._elems[:, [7, 5, 6]]], dim=0)

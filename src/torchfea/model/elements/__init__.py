@@ -6,7 +6,7 @@ from . import materials
 from .dimension3.surfaces import initialize_surfaces, T3, T6, Q4, Q8, BaseSurface
 
 def initialize_element(element_type: str,
-                       elems_index: torch.Tensor, elems: torch.Tensor, part, *args,
+                       elems_index: torch.Tensor, elems: torch.Tensor, *args,
                        **kwargs) -> BaseElement:
     """
     Initialize the element based on the element type.
