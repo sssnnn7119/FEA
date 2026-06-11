@@ -631,8 +631,10 @@ class StaticImplicitSolver(BaseSolver):
 
             # calculate the force vector and tangential stiffness matrix
             t1 = time.time()
-            R = self.assembly.assemble_force(GC=GC)
             R, K_indices, K_values = self.get_stiffness_matrix(GC_now=GC)
+
+            a=torch.cuda.memory_cached()
+
 
             self._iter_now += 1
 

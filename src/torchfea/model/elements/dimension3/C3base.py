@@ -99,12 +99,12 @@ class Element_3D(BaseElement):
         # coo index of the stiffness matricx of structural stress
 
         index0_ = torch.stack([
-                self._elems.T.reshape([self.num_nodes_per_elem, 1, 1, 1, -1]).repeat([1, 3, self.num_nodes_per_elem, 3, 1]),
-                torch.arange(3).reshape([1, 3, 1, 1, 1]).repeat([self.num_nodes_per_elem, 1, self.num_nodes_per_elem, 3, self._elems.shape[0]]),
-                self._elems.T.reshape([1, 1, self.num_nodes_per_elem, 1, -1]).repeat([self.num_nodes_per_elem, 3, 1, 3, 1]),
-                torch.arange(3).reshape([1, 1, 1, 3, 1]).repeat([self.num_nodes_per_elem, 3, self.num_nodes_per_elem, 1, self._elems.shape[0]])
+                self._elems.cpu().T.reshape([self.num_nodes_per_elem, 1, 1, 1, -1]).repeat([1, 3, self.num_nodes_per_elem, 3, 1]),
+                torch.arange(3, device='cpu').reshape([1, 3, 1, 1, 1]).repeat([self.num_nodes_per_elem, 1, self.num_nodes_per_elem, 3, self._elems.shape[0]]),
+                self._elems.cpu().T.reshape([1, 1, self.num_nodes_per_elem, 1, -1]).repeat([self.num_nodes_per_elem, 3, 1, 3, 1]),
+                torch.arange(3, device='cpu').reshape([1, 1, 1, 3, 1]).repeat([self.num_nodes_per_elem, 3, self.num_nodes_per_elem, 1, self._elems.shape[0]])
             ], dim=0).reshape([4, -1])
-        index0 = torch.zeros([2, index0_.shape[1]], dtype=torch.int64)
+        index0 = torch.zeros([2, index0_.shape[1]], dtype=torch.int64, device='cpu')
         index0[0] = index0_[0] * 3 + index0_[1]
         index0[1] = index0_[2] * 3 + index0_[3]
 
@@ -117,26 +117,26 @@ class Element_3D(BaseElement):
             index2, return_inverse=True)
 
         inverse_index = torch.zeros_like(index_sorted_matrix,
-                                         dtype=torch.int64)
+                                         dtype=torch.int64, device='cpu')
         inverse_index[index_sorted_matrix] = torch.arange(
-            0, index_sorted_matrix.max() + 1, dtype=torch.int64)
+            0, index_sorted_matrix.max() + 1, dtype=torch.int64, device='cpu')
 
-        default_device = torch.zeros([1]).device
 
         self._index_matrix_coalesce = self._index_matrix_coalesce[inverse_index].to(
-            default_device)
+            torch.get_default_device())
         self._indices_matrix = torch.zeros([2, index_unique.shape[0]],
-                                          dtype=torch.int64)
+                                          dtype=torch.int64, device='cpu')
         self._indices_matrix[1] = index_unique % scaler
         self._indices_matrix[0] = index_unique // scaler
+        self._indices_matrix = self._indices_matrix.to(torch.get_default_device())
 
         # coo index of the force vector of structural stress
-        self._indices_force = self._elems[:, :self.num_nodes_per_elem].transpose(0, 1).unsqueeze(1).repeat(
+        self._indices_force = self._elems.cpu()[:, :self.num_nodes_per_elem].transpose(0, 1).unsqueeze(1).repeat(
             1, 3, 1)
         self._indices_force *= 3
         self._indices_force[:, 1, :] += 1
         self._indices_force[:, 2, :] += 2
-        self._indices_force = self._indices_force.flatten().to(default_device)
+        self._indices_force = self._indices_force.flatten().to(torch.get_default_device())
 
     def _pre_load_gaussian(self, nodes: torch.Tensor):
         """
@@ -231,11 +231,6 @@ class Element_3D(BaseElement):
         self._dNW = torch.einsum('geia,ge->geia',
                                 self.shape_function_d1_gaussian,
                                 self.gaussian_weight)
-        
-        self._dNdNW = torch.einsum('gelb,geia,ge->gelbia',
-                                  self.shape_function_d1_gaussian,
-                                  self.shape_function_d1_gaussian,
-                                  self.gaussian_weight)
 
 
     @staticmethod
@@ -502,9 +497,10 @@ class Element_3D(BaseElement):
             return Relement
         
         # calculate the element tangential stiffness matrix
-        Ka_element = torch.einsum('geijkl,gelbia->ajbke',
+        Ka_element = torch.einsum('geijkl,gelb,geia->ajbke',
                                    C,
-                                  self._dNdNW)
+                                  self.shape_function_d1_gaussian,
+                                  self._dNW)
         
         return Relement, Ka_element
         

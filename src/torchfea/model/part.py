@@ -196,19 +196,47 @@ class Part(Serializable):
             del self.elems[name]
         else:
             raise ValueError(f"Element '{name}' not found in the model.")
+
+    def add_node_set(self, name: str, node_indices: np.ndarray):
+        """
+        Add a node set to the part.
+
+        Args:
+            name (str): Name of the node set.
+            node_indices (np.ndarray): Array of node indices to be included in the set.
+
+        Returns:
+            str: The name of the added node set.
+        """
+        self.set_nodes[name] = node_indices
+        return name
     
-    def add_surface_set(self, name: str, elements: np.ndarray):
+    def delete_node_set(self, name: str):
+        """
+        Delete a node set from the part.
+
+        Args:
+            name (str): Name of the node set to be deleted.
+        """
+        if name in self.set_nodes:
+            del self.set_nodes[name]
+        else:
+            raise ValueError(f"Node set '{name}' not found in the model.")
+        
+
+    def add_surface_set(self, name: str, elements: list[tuple[np.ndarray, int]]):
         """
         Add a surface set to the FEA model.
         
         Args:
             name (str): Name of the surface set.
-            elements (np.ndarray): Surface elements information.
+            elements (list[tuple[np.ndarray, int]]): A list of tuples, where each tuple contains an array of element indices and a surface index.
             
         Returns:
             str: Name of the added surface set.
         """
         self.surfaces[name] = elements
+        self.surfaces._initialized = False  # Mark surfaces as not initialized since we added new surface data
         return name
     
     def delete_surface_set(self, name: str):
@@ -225,7 +253,7 @@ class Part(Serializable):
             del self.surfaces[name]
         else:
             raise KeyError(f"Surface set '{name}' not found in the model.")
-
+        
     def refine_RGC(self, RGC: torch.Tensor) -> torch.Tensor:
         RGC_out = RGC
         for e in self.elems.values():
@@ -584,6 +612,31 @@ class Part(Serializable):
         return M_indices, M_values
 
     # endregion
+
+    def get_mesh(self, surf_name: str = None) -> pv.PolyData:
+        """
+        Get the mesh of the instance for visualization.
+        Args:
+            surf_name (str, optional): Name of the surface set to visualize. 
+                If None, use the external_surface attribute. Defaults to None.
+        Returns:
+            pv.PolyData: The mesh of the instance.
+        """
+        import pyvista as pv
+        
+        if surf_name is None:
+            tri_list = []
+            for surf_name in self.surfaces.keys():
+                tri_now = self.surfaces.get_trimesh(surf_name)
+                tri_list.append(tri_now)
+            triangles = torch.cat(tri_list, dim=0).cpu().numpy()
+        else:
+            triangles = self.surfaces.get_trimesh(surf_name).cpu().numpy()
+        nodes_transformed = self.nodes.cpu().numpy()
+
+        mesh = pv.PolyData(nodes_transformed, np.hstack([ np.full((triangles.shape[0], 1), 3), triangles ]))
+        return mesh
+
 
 class Instance(BaseObj):
 

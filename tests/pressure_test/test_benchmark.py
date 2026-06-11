@@ -51,6 +51,14 @@ result = fe.solve(tol_error=0.01)
 # result = torchfea.solver.StaticResult.load('temp.npz')
 # os.remove('temp.npz')
 
+
+torch.cuda.synchronize()          # 确保 GPU 操作完成
+# 3. 保存快照文件
+torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
+
+# 4. 关闭记录，避免影响性能
+torch.cuda.memory._record_memory_history(enabled=None)
+
 print('ok')
 print(result.GC[-6:])
 fe.assembly.get_instance('final_model').external_surface = 'surface_0_All'
