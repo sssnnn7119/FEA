@@ -164,7 +164,7 @@ class ContactSelf(ContactBase):
                               '_parameters']
 
     def __init__(self, instance_name: str, surface_name: str,
-                 ignore_min_normal: float = -0.5,
+                 ignore_min_normal: float = 0.5,
                  ignore_max_normal: float = 1.5, 
                  initial_detact_ratio: float = 1.5, 
                  penalty_distance_f: float = 1e-5,
@@ -697,7 +697,7 @@ class Contact(ContactBase):
             surface_name2: str,
             penalty_distance_f: float = 1e-5,
             penalty_factor_f: float = 40.0,
-            penalty_start_g: float = -0.8,
+            penalty_start_g: float = -0.4,
             penalty_end_g: float = -0.85,
             penalty_threshold_h: float = 1.5,
             penalty_ratio_h: float = 0.9,

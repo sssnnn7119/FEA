@@ -65,21 +65,6 @@ class BaseElement(Serializable):
         # material contributions in energy/force/stiffness calculations.
         self.materials: dict[str, materials.Materials_Base] = {}
 
-        self._indices_matrix: torch.Tensor
-        """
-            the coo index of the stiffness matricx of structural stress
-        """
-
-        self._indices_force: torch.Tensor
-        """
-            the coo index of the tructural stress
-        """
-
-        self._index_matrix_coalesce: torch.Tensor = None
-        """
-            the start index of the stiffness matricx of structural stress
-        """
-
         self._density: torch.Tensor = None
         """
             the density of the element
@@ -188,28 +173,7 @@ class BaseElement(Serializable):
         """
         Modify the RGC_remain_index
         """
-        
-    def extract_surface(self, surface_ind: int, elems_ind: np.ndarray):
-        """
-        Find the surface of the element
 
-        Args:
-            surface_ind (int): the index of the surface
-            elems_ind (np.ndarray): the index of the element
-        
-        Returns:
-            list[BaseSurface]: a list of surface elements
-        """
-        return []
-    
-    def set_order(self, order: int):
-        """
-        set the order of the element
-        Args:
-            order (int): the order of the element
-        """
-        raise NotImplementedError('The order of the element is not implemented yet')
-    
     def refine_RGC(self, RGC: torch.Tensor, nodes: torch.Tensor) -> torch.Tensor:
         """
             refine the RGC of the element

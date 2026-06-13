@@ -37,6 +37,7 @@ class Couple(BaseConstraint):
         """
         Apply the couple constraint to the displacement vector
         """
+        RGC[self._couple_index] = RGC[self._couple_index].clone()
         RGC[self._couple_index][self._indexNodes] = RGC[self._rp_index][:3] + self._rotation3d(
             RGC[self._rp_index][3:], self._ref_location) - self._ref_location
 

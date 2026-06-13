@@ -102,7 +102,7 @@ class FEAController(Serializable):
                 else:
                     self._change_device_recursive(v, device, visited)
 
-    def save_model(self, path: str, if_save_source_code: bool = False) -> None:
+    def save_model(self, path: str, if_save_source_code: bool = True) -> None:
         """
         Save the finite element model to a file.
 

@@ -22,6 +22,7 @@ class Boundary_Condition_RP(BaseBoundary):
 
     def modify_RGC(self, RGC: list[torch.Tensor]) -> list[torch.Tensor]:
         for i in self.indexDoF:
+            RGC[self._constraint_index] = RGC[self._constraint_index].clone()
             RGC[self._constraint_index][i] = 0.0
         return RGC
 

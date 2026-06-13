@@ -36,28 +36,13 @@ class C3D4(Element_3D):
 
     num_surfaces = 4
 
-    
-    def extract_surface(self, surface_ind: int,
-                           elems_ind: torch.Tensor):
+    surfaceid_map = {
+        0: [0, 2, 1],
+        1: [0, 1, 3],
+        2: [1, 2, 3],
+        3: [0, 3, 2]
+    }
 
-        index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]
-
-        if index_now.shape[0] == 0:
-            tri_elems = torch.empty([0, 3], dtype=torch.long, device=self._elems.device)
-
-        elif surface_ind == 0:
-            tri_elems = self._elems[index_now][:, [0, 2, 1]]
-        elif surface_ind == 1:
-            tri_elems = self._elems[index_now][:, [0, 1, 3]]
-        elif surface_ind == 2:
-            tri_elems = self._elems[index_now][:, [1, 2, 3]]
-        elif surface_ind == 3:
-            tri_elems = self._elems[index_now][:, [0, 3, 2]]
-        else:
-            raise ValueError(f"Invalid surface index: {surface_ind}")
-
-        return [initialize_surfaces(tri_elems)]
-    
 class C3D10(Element_3D):
     """
         Local coordinates:
@@ -102,42 +87,10 @@ class C3D10(Element_3D):
     ])
     num_surfaces = 4
 
+    surfaceid_map = {
+        0: [0, 2, 1, 6, 5, 4],
+        1: [0, 1, 3, 4, 8, 7],
+        2: [1, 2, 3, 5, 9, 8],
+        3: [0, 3, 2, 7, 9, 6]
+    }
 
-
-    def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
-        index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]
-
-        if index_now.shape[0] == 0:
-            return []
-
-        if surface_ind == 0:
-            T6_elems = self._elems[index_now][:, [0, 2, 1, 6, 5, 4]]
-        elif surface_ind == 1:
-            T6_elems = self._elems[index_now][:, [0, 1, 3, 4, 8, 7]]
-        elif surface_ind == 2:
-            T6_elems = self._elems[index_now][:, [1, 2, 3, 5, 9, 8]]
-        elif surface_ind == 3:
-            T6_elems = self._elems[index_now][:, [0, 3, 2, 7, 9, 6]]
-        else:
-            raise ValueError(f"Invalid surface index: {surface_ind}")
-
-        result = []
-        if T6_elems.shape[0] > 0:
-            result.append(initialize_surfaces(T6_elems))
-        return result
-
-    def get_2nd_order_point_index_surface(self, surface_ind: int):
-        """
-        Get the 2nd order point index for the specified surface.
-        This is used to identify the mid-edge nodes for the surface elements.
-        """
-        if surface_ind == 0:
-            return torch.tensor([[6, 0, 2], [5, 1, 2], [4, 0, 1]], dtype=torch.long)
-        elif surface_ind == 1:
-            return torch.tensor([[4, 0, 1], [8, 1, 3], [7, 0, 3]], dtype=torch.long)
-        elif surface_ind == 2:
-            return torch.tensor([[5, 1, 2], [9, 2, 3], [8, 1, 3]], dtype=torch.long)
-        elif surface_ind == 3:
-            return torch.tensor([[7, 0, 3], [9, 2, 3], [6, 0, 2]], dtype=torch.long)
-        else:
-            raise ValueError(f"Invalid surface index: {surface_ind}")

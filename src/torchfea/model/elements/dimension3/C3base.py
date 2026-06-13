@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 import torch
 import numpy as np
 from ..base import BaseElement
-
+from .surfaces import initialize_surfaces
 
 class Element_3D(BaseElement):
 
@@ -17,6 +17,11 @@ class Element_3D(BaseElement):
     num_surfaces: int
     """
         the number of surfaces of the element
+    """
+
+    surfaceid_map: dict[int, list[int]]
+    """
+        the mapping that maps the surface id to the node index of the element, which is used to extract the surface elements.
     """
 
     def __init_subclass__(cls):
@@ -66,6 +71,22 @@ class Element_3D(BaseElement):
 
         self.shape_function_d0_gaussian: torch.Tensor
         """the shape functions of each guassian point [guassian, element, node]"""
+
+
+        self._indices_matrix: torch.Tensor
+        """
+            the coo index of the stiffness matricx of structural stress
+        """
+
+        self._indices_force: torch.Tensor
+        """
+            the coo index of the tructural stress
+        """
+
+        self._index_matrix_coalesce: torch.Tensor = None
+        """
+            the start index of the stiffness matricx of structural stress
+        """
 
         self._dNW: torch.Tensor
         """the derivative of the shape function multiplied by the guassian weight [guassian, element, derivative, node]"""
@@ -574,27 +595,49 @@ class Element_3D(BaseElement):
         RGC_remain_index[self._elems.unique().cpu().numpy()] = True
 
         return RGC_remain_index
-    
-    # region second order methods
-    
-    def get_2nd_order_point_index_surface(self, surface_ind: int) -> torch.Tensor:
-        """
-        The relative point index of the element that lies in the middle of the element
 
-        get the 2-nd order point index of the element that lies in the middle of the element
-        only for the first order faces of the second order element
-        
-        Args:
-            surface_ind: the index of the surface, 0 for the first surface, 1 for the second surface, etc.
-        
-        Returns:
-            torch.Tensor: the 2-nd order point index of the element \n
-                size: [point_index, 3]\n
-                    [0]: the index of the middle node of the element\n
-                    [1]: the index of the neighbor node of the middle node of the element\n
-                    [2]: the index of the other neighbor node of the middle node of the element\n
+    def extract_boundary_surface_set(
+        self
+    ) -> list[tuple[torch.Tensor, int]]:
+        """Extract boundary face groups from tet connectivity.
+
+        Returns a list of (element_tags, face_index) tuples for each
+        tetrahedron face that lies on the exterior boundary.
         """
-        return torch.zeros([0, 3], dtype=torch.int64)
+        face_defs = self.surfaceid_map
+        num_surfaces = self.num_surfaces
+        surface_counter: dict[tuple[int], int] = {}
+
+        for sfidx in range(num_surfaces):
+            face_nodes = self._elems[:, face_defs[sfidx]]
+            for face in face_nodes:
+                sorted_face = tuple(sorted(face.cpu().numpy()))
+                surface_counter[sorted_face] = surface_counter.get(sorted_face, 0) + 1
+        
+        surface_sets: list[tuple[torch.Tensor, int]] = []
+        for sfidx in range(num_surfaces):
+            face_nodes = self._elems[:, face_defs[sfidx]]
+
+            surf_now = []
+            for elemidx, face in enumerate(face_nodes):
+                sorted_face = tuple(sorted(face.cpu().numpy()))
+                if surface_counter[sorted_face] == 1:
+                    surf_now.append(elemidx)
+            
+            if len(surf_now) > 0:
+                surface_sets.append((np.array(surf_now, dtype=np.int64), sfidx))
+
+        return surface_sets
     
-    
-    # endregion second order methods
+
+    def extract_surface(self, surface_ind: int, elems_ind: torch.Tensor):
+        index_now = np.where(np.isin(self._elems_index.cpu().numpy(), elems_ind))[0]
+
+        if index_now.shape[0] == 0:
+            return []
+
+        if surface_ind in self.surfaceid_map:
+            face_elems = self._elems[index_now][:, self.surfaceid_map[surface_ind]]
+            return [initialize_surfaces(face_elems)]
+        else:
+            raise ValueError(f"Surface index {surface_ind} not found in surfaceid_map.")

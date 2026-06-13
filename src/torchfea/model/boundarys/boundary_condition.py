@@ -29,6 +29,7 @@ class Boundary_Condition(BaseBoundary):
         Apply the boundary condition to the displacement vector
         """
         for i in self.indexDoF:
+            RGC[self._constraint_index] = RGC[self._constraint_index].clone()
             RGC[self._constraint_index][self.index_nodes, i] = 0.0
         return RGC
 

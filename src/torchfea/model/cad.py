@@ -1,9 +1,7 @@
 from .part import Part
 from .elements import initialize_element
 import torch
-
-
-
+import numpy as np
 def create_box(xmin: float, xmax: float, ymin: float, ymax: float, zmin: float, zmax: float, nx: int, ny: int, nz: int, element_name: str = 'C3D8'):
     """
     Create a box geometry defined by the given dimensions and number of elements.
@@ -15,9 +13,9 @@ def create_box(xmin: float, xmax: float, ymin: float, ymax: float, zmin: float, 
         ymax (float): Maximum y-coordinate of the box.
         zmin (float): Minimum z-coordinate of the box.
         zmax (float): Maximum z-coordinate of the box.
-        nx (int): Number of elements along the x-axis.
-        ny (int): Number of elements along the y-axis.
-        nz (int): Number of elements along the z-axis.
+        nx (int): Number of nodes along the x-axis.
+        ny (int): Number of nodes along the y-axis.
+        nz (int): Number of nodes along the z-axis.
 
     Returns:
         nodes (torch.Tensor): Tensor of shape (num_nodes, 3) containing the coordinates            of the nodes.
@@ -75,42 +73,42 @@ def create_box(xmin: float, xmax: float, ymin: float, ymax: float, zmin: float, 
     part.add_element(elems, name=element_name)
 
     # surface_xmin: x=0 
-    elem_indices_xmin = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[0, :, :].reshape(-1)
+    elem_indices_xmin = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[0, :, :].reshape(-1)
     part.add_surface_set(
         name='surface_xmin', 
         elements=[(elem_indices_xmin, 5)]
     )
 
     # surface_xmax: x=nx-1 
-    elem_indices_xmax = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[-1, :, :].reshape(-1)
+    elem_indices_xmax = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[-1, :, :].reshape(-1)
     part.add_surface_set(
         name='surface_xmax', 
         elements=[(elem_indices_xmax, 3)]
     )
 
     # surface_ymin: y=0 
-    elem_indices_ymin = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, 0, :].reshape(-1)
+    elem_indices_ymin = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, 0, :].reshape(-1)
     part.add_surface_set(
         name='surface_ymin', 
         elements=[(elem_indices_ymin, 2)]
     )
 
     # surface_ymax: y=ny-1 
-    elem_indices_ymax = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, -1, :].reshape(-1)
+    elem_indices_ymax = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, -1, :].reshape(-1)
     part.add_surface_set(
         name='surface_ymax', 
         elements=[(elem_indices_ymax, 4)]
     )
 
     # surface_zmin: z=0 
-    elem_indices_zmin = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, :, 0].reshape(-1)
+    elem_indices_zmin = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, :, 0].reshape(-1)
     part.add_surface_set(
         name='surface_zmin', 
         elements=[(elem_indices_zmin, 0)]
     )
 
     # surface_zmax: z=nz-1 
-    elem_indices_zmax = torch.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, :, -1].reshape(-1)
+    elem_indices_zmax = np.arange((nx-1)*(ny-1)*(nz-1)).reshape(nx-1, ny-1, nz-1)[:, :, -1].reshape(-1)
     part.add_surface_set(
         name='surface_zmax', 
         elements=[(elem_indices_zmax, 1)]
@@ -119,8 +117,7 @@ def create_box(xmin: float, xmax: float, ymin: float, ymax: float, zmin: float, 
     # define node sets for boundary conditions
     total_nodes = nx * ny * nz
 
-    # 方法1：reshape 成网格形状再取边界
-    nodes_grid = torch.arange(total_nodes).reshape(nx, ny, nz)
+    nodes_grid = np.arange(total_nodes).reshape(nx, ny, nz)
 
     # xmin 和 xmax: 固定 x 索引
     nodes_xmin = nodes_grid[0, :, :].reshape(-1)      # x=0 的所有节点
@@ -140,5 +137,7 @@ def create_box(xmin: float, xmax: float, ymin: float, ymax: float, zmin: float, 
     part.add_node_set(name='nodes_ymax', node_indices=nodes_ymax)
     part.add_node_set(name='nodes_zmin', node_indices=nodes_zmin)
     part.add_node_set(name='nodes_zmax', node_indices=nodes_zmax)
+
+    part.add_node_set(name='all', node_indices=np.arange(total_nodes))
 
     return part

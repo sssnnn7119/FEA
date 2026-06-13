@@ -2,6 +2,8 @@ from __future__ import annotations
 import re
 from typing import Optional, TYPE_CHECKING
 
+from .elements import Element_3D
+
 if TYPE_CHECKING:
     from .. import Assembly
 
@@ -127,7 +129,7 @@ class Part(Serializable):
         Nodes of the part.
         Shape: (num_nodes, 3)
         """
-        self.elems: dict[str, BaseElement] = {}
+        self.elems: dict[str, Element_3D] = {}
         """
         Elements of the part.
         """
@@ -208,6 +210,8 @@ class Part(Serializable):
         Returns:
             str: The name of the added node set.
         """
+        if type(node_indices) is torch.Tensor:
+            node_indices = node_indices.cpu().numpy()
         self.set_nodes[name] = node_indices
         return name
     
