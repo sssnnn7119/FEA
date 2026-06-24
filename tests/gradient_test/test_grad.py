@@ -6,58 +6,28 @@ import time
 import sys
 sys.path.append('.')
 import scipy.sparse as sp
-import torchfea
+
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
-
+import pathlib
+current_path = pathlib.Path(current_path)
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
+import torchfea
 
+name = 'C3D10'
 
-fem = torchfea.FEA_INP()
-name = 'C3D4'
-fem.read_inp(current_path + '/C3D4.inp')
-
-fe = torchfea.from_inp(fem)
-fe.solver = torchfea.solver.StaticImplicitSolver()
-# fe._maximum_step_length = 0.3
-# elems = torch_fea.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
-# fe.elems['element-0'].set_materials(elems)
-
-# torch_fea.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=torch_fea.elems['C3D4']._elems_index))
-
-fe.assembly.add_load(torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
-                name='pressure-1')
-                
-# fe.assembly.add_load(torch_fea.loads.ContactSelf(surface_name='surface_0_All', penalty_distance_g=10, penalty_threshold_h=5.5))
-fe.assembly.add_load(torchfea.loads.ContactSelf(instance_name='final_model',surface_name='surface_0_All'))
-fe.assembly.add_load(torchfea.loads.ContactSelf(instance_name='final_model',surface_name='surface_1_All'))
-fe.assembly.add_load(torchfea.loads.ContactSelf(instance_name='final_model',surface_name='surface_2_All'))
-fe.assembly.add_load(torchfea.loads.ContactSelf(instance_name='final_model',surface_name='surface_3_All'))
-
-bc_name = fe.assembly.add_boundary(
-    torchfea.boundarys.Boundary_Condition(instance_name='final_model', set_nodes_name='surface_0_Bottom'))
-
-rp = fe.assembly.add_reference_point(torchfea.ReferencePoint([0, 0, 70]))
-
-fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_model', set_nodes_name='surface_0_Head', rp_name=rp))
-
-
-
-
-t1 = time.time()
-
-
-t1 = time.time()
+fe = torchfea.load_model(current_path.parent / 'models' / f'{name}_model.npz')
 fe.initialize()
-if not os.path.exists(current_path + '/%s_results.npy' % name):
-    fe.solve(tol_error=1e-6)
-    np.save(current_path + '/%s_results' % name, fe.assembly._GC.cpu().numpy())
+if not os.path.exists(current_path.parent / 'models' / f'{name}_results.npz'):
+    
+    feresult = fe.solve(tol_error=1e-6)
+    feresult.save(current_path.parent / 'models' / f'{name}_results.npz')
 else:
-    fe.assembly._GC = torch.from_numpy(
-        np.load(current_path + '/%s_results.npy' % name)).to(fe.assembly._GC.device).type(fe.assembly._GC.dtype)
+    feresult = torchfea.solver.StaticResult.load(current_path.parent / 'models' / f'{name}_results.npz')
 
-GC0 = fe.assembly._GC.clone().detach()
+fe.initialize()
+GC0 = feresult.GC.clone().detach()
 RGC0 = fe.assembly._GC2RGC(GC0)
 
 K_indices, K_values = fe.assembly.assemble_Stiffness_Matrix(
@@ -91,32 +61,49 @@ def closure_work(nodes_diff: torch.Tensor):
 
 grad_pos = torch.autograd.functional.jacobian(closure_work, part.nodes)
 
+def apply_design_vars(assembly: torchfea.Assembly,
+                        design_vars: torch.Tensor,
+                        ) -> None:
+    part = assembly.get_part('final_model')
+    part.nodes = design_vars.reshape(part.nodes.shape)
+
+def compute_objective(fe_result: torchfea.solver.StaticResult,
+                        assembly: torchfea.Assembly,
+                        ) -> torch.Tensor:
+    # compute the sensitivity of the displacement
+    return fe_result.GC[-2]
+grad_sensi = fe.solver.get_sensitivity(
+    fe_result=feresult,
+    design_vars=part.nodes.reshape(-1),
+    apply_func=apply_design_vars,
+    compute_objective_func=compute_objective,
+    )
 # show_quiver3d(nodes0[index_remain].T, grad_pos[index_remain].T)
 
-epsilon = 1e-3
-test_pair = ((2, 1), (10, 0), (5, 1))
+epsilon = 1e-2
+test_pair = ((35021, 0), (10, 0), (5, 1))
 
 nodes0 = part.nodes.clone().detach()
 R0 = fe.assembly.assemble_Stiffness_Matrix(RGC=fe.assembly._GC2RGC(GC0))[0]
 
-index_test = torch.where(grad_pos.abs() > 0.000001)
 
-for i in range(index_test[0].shape[0]):
-    indtest1 = index_test[0][i].item()
-    indtest2 = index_test[1][i].item()
+for i in range(len(test_pair)):
+    indtest1 = test_pair[i][0]
+    indtest2 = test_pair[i][1]
     # if (nodes0[indtest1, 2] != 70):
     #     continue
     part.nodes = nodes0.detach().clone()
     part.nodes[indtest1, indtest2] += epsilon
-    fe.solve(tol_error=1e-6, RGC0=RGC0)
-    GC1 = fe.assembly._GC.clone().detach()
-    R1 = fe.assembly.assemble_Stiffness_Matrix(RGC=fe.assembly._GC2RGC(GC0))[0]
+    fe.initialize()
+    feresult1 = fe.solve(GC0=GC0, if_initialize=False)
+    GC1 = feresult1.GC.clone().detach()
+    R1partial = fe.assembly.assemble_Stiffness_Matrix(RGC=fe.assembly._GC2RGC(GC0))[0]
 
     diff = (GC1 - GC0)[index_disp] / epsilon
-    diff1 = ((R1 - R0)*ADJu / epsilon).sum()
+    diff1 = ((R1partial - R0)*ADJu / epsilon).sum()
 
     UdN = (GC1 - GC0) / epsilon
-    RdN = (R1 - R0) / epsilon
+    RdN = (R1partial - R0) / epsilon
     K = torch.sparse_coo_tensor(K_indices, K_values, size=(GC0.shape[0], GC0.shape[0]))
 
     print('ind:', (indtest1, indtest2))

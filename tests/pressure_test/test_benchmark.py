@@ -7,7 +7,8 @@ import numpy as np
 import torch
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
-
+import pathlib
+current_path = pathlib.Path(current_path)
 torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
@@ -22,11 +23,11 @@ fem = torchfea.FEA_INP()
 # fem.Read_INP(
 #     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
 # )
-
-fem.read_inp(current_path + '/C3D10.inp')
+name = 'C3D10'
+fem.read_inp(current_path.parent / 'models' / f'{name}.inp')
 
 fe = torchfea.from_inp(fem)
-fe.solver = torchfea.solver.StaticImplicitSolver()
+fe.solver = torchfea.solver.StaticImplicitSolver(tol_error=1e-8)
 # elems = torch_fea.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
 # fe.elems['element-0'].set_materials(elems)
 
@@ -46,18 +47,11 @@ fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_mode
 
 t1 = time.time()
 
-result = fe.solve(tol_error=0.01)
-# result.save('temp.npz')
+fe.save_model(current_path.parent / 'models' / f'{name}_model.npz', if_save_source_code=True)
+result = fe.solve()
+result.save(current_path.parent / 'models' / f'{name}_results.npz')
 # result = torchfea.solver.StaticResult.load('temp.npz')
 # os.remove('temp.npz')
-
-
-torch.cuda.synchronize()          # 确保 GPU 操作完成
-# 3. 保存快照文件
-torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
-
-# 4. 关闭记录，避免影响性能
-torch.cuda.memory._record_memory_history(enabled=None)
 
 print('ok')
 print(result.GC[-6:])
@@ -66,6 +60,7 @@ fe.assembly.show_all(GC=result.GC)
 
 part = fe.assembly.get_part('final_model')
 
-sfs = part.elems['C3D10'].extract_boundary_surface_set()
+sfs = part.elems['C3D4'].extract_boundary_surface_set()
 part.add_surface_set(name='externsurf', elements=sfs)
+part.surfaces.initialize(part)
 part.get_mesh('externsurf').plot()

@@ -8,16 +8,18 @@ sys.path.append('.')
 import torchfea
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 current_path = os.path.dirname(os.path.abspath(__file__))
+import pathlib
+current_path = pathlib.Path(current_path)
 
-torch.set_default_device(torch.device('cpu'))
+torch.set_default_device(torch.device('cuda'))
 torch.set_default_dtype(torch.float64)
 
 from typing import Optional, TYPE_CHECKING, Callable
 
 
 fem = torchfea.FEA_INP()
-name = 'C3D4'
-fem.read_inp(current_path + '/C3D4.inp')
+name = 'C3D10'
+fem.read_inp(current_path.parent / 'models' / f'{name}.inp')
 
 fe = torchfea.from_inp(fem)
 fe.solver = torchfea.solver.StaticImplicitSolver()
@@ -46,11 +48,11 @@ fe.assembly.add_constraint(torchfea.constraints.Couple(instance_name='final_mode
 
 t1 = time.time()
 fe.initialize()
-if not os.path.exists('Z:/temp/%s_results.npz' % name):
+if not os.path.exists('/run/media/song/缓存/temp/%s_results.npz' % name):
     feresult = fe.solve(tol_error=1e-6)
-    feresult.save('Z:/temp/%s_results.npz' % name)
+    feresult.save('/run/media/song/缓存/temp/%s_results.npz' % name)
 else:
-    feresult = torchfea.solver.StaticResult.load('Z:/temp/%s_results.npz' % name)
+    feresult = torchfea.solver.StaticResult.load('/run/media/song/缓存/temp/%s_results.npz' % name)
 GC0 = feresult.GC.clone().detach()
 RGC0 = fe.assembly._GC2RGC(GC0)
 
@@ -85,7 +87,7 @@ def compute_objective_jacobian(fe_result: torchfea.solver.StaticResult,
                         assembly: torchfea.Assembly,
                         ) -> torch.Tensor:
     # compute the sensitivity of the displacement
-    return fe_result.jacobian['pressure-1'][-2, 0] + fe_result.GC[-2]
+    return fe_result.GC[-2] + fe_result.jacobian['pressure-1'][-2, 0]
 
 grad_sensi_jacobian = solver.get_jacobian_sensitivity(
     fe_result=feresult,
@@ -105,7 +107,7 @@ test_pair = ((2, 1), (10, 0), (5, 1))
 feresult.jacobian = {'pressure-1': jacobian0}
 obj0 = compute_objective_jacobian(feresult, fe.assembly)
 
-indtest1 = 1
+indtest1 = 15716
 indtest2 = 0
 # if (nodes0[indtest1, 2] != 70):
 #     continue
@@ -118,11 +120,6 @@ jacobian1 = torch.cat([jacobian1[load_name] for load_name in ['pressure-1']], di
 result1.jacobian = {'pressure-1': jacobian1}
 obj1 = compute_objective_jacobian(result1, fe.assembly)
 
-
-
-part.nodes = nodes0.detach().clone()
-fe.assembly.get_load('pressure-1').pressure += epsilon / 100
-resultpressure = fe.solve(tol_error=1e-6, GC0=GC0)
 
 diff = (obj1 - obj0) / epsilon
 print('Testing node (%d, %d):' % (indtest1, indtest2))

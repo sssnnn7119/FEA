@@ -1,5 +1,8 @@
 import numpy as np
 import torch
+
+torch.set_default_dtype(torch.float64)
+
 import importlib
 
 

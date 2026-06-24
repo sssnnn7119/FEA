@@ -179,6 +179,7 @@ class Assembly(Serializable):
             assembly._loads = dict(sorted(assembly._loads.items()))
             assembly._constraints = dict(sorted(assembly._constraints.items()))
             assembly._boundarys = dict(sorted(assembly._boundarys.items()))
+            assembly._reference_points = dict(sorted(assembly._reference_points.items()))
 
         @staticmethod
         def _initialize_instance_with_part(assembly: 'Assembly'):
@@ -889,31 +890,31 @@ class Assembly(Serializable):
             if name in self._loads:
                 self._loads[name]._parameters = info
             else:
-                raise ValueError(f"Load '{name}' not found in the model.")
+                print(f"Warning: Load '{name}' not found in the model. Skipping parameter update.")
             
         for name, enabled in workcondition.ins_enabled.items():
             if name in self._instances:
                 self._instances[name].enabled = enabled
             else:
-                raise ValueError(f"Instance '{name}' not found in the model.")
-            
+                print(f"Warning: Instance '{name}' not found in the model. Skipping parameter update.")
+
         for name, enabled in workcondition.load_enabled.items():
             if name in self._loads:
                 self._loads[name].enabled = enabled
             else:
-                raise ValueError(f"Load '{name}' not found in the model.")
-            
+                print(f"Warning: Load '{name}' not found in the model. Skipping parameter update.")
+
         for name, enabled in workcondition.constraint_enabled.items():
             if name in self._constraints:
                 self._constraints[name].enabled = enabled
             else:
-                raise ValueError(f"Constraint '{name}' not found in the model.")
-            
+                print(f"Warning: Constraint '{name}' not found in the model. Skipping parameter update.")
+
         for name, enabled in workcondition.boundary_enabled.items():
             if name in self._boundarys:
                 self._boundarys[name].enabled = enabled
             else:
-                raise ValueError(f"Boundary '{name}' not found in the model.")
+                print(f"Warning: Boundary '{name}' not found in the model. Skipping parameter update.")
 
         self.define_required_DoFs()
 

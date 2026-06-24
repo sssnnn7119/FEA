@@ -503,7 +503,6 @@ class StaticImplicitSolver(BaseSolver):
         print("\nAll steps sensitivity computation completed.")
 
         return sensitivity
-        
 
     @classmethod
     def _detach_recursive(cls, obj: object, visited: set=None):
@@ -757,7 +756,7 @@ class StaticImplicitSolver(BaseSolver):
         else:
             self.__low_alpha_count = 0
 
-        if self.__low_alpha_count > 5 or R_preconditioned.abs().max() < 1e-3 or K_values_preconditioned.device.type == 'cpu':
+        if self.__low_alpha_count > 5 or R_preconditioned.abs().max() < 1e-2 or K_values_preconditioned.device.type == 'cpu':
             dx = _linear_solver.pypardiso_solver(A_indices=K_indices,
                                                  A_values=K_values_preconditioned,
                                                  b=R_preconditioned)

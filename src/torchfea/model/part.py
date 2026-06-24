@@ -645,7 +645,7 @@ class Part(Serializable):
 class Instance(BaseObj):
 
     _serialized_attributes_exclude = ['part', ]
-    def __init__(self, part_name: str, translation: torch.Tensor = None, rotation: torch.Tensor = None, external_surface: str = '') -> None:
+    def __init__(self, part_name: str, translation: list[float] = None, rotation: list[float] = None, external_surface: str = '') -> None:
         """
         Create an instance of a part.
 
@@ -660,13 +660,13 @@ class Instance(BaseObj):
         self.part: Part = None
 
         if translation is not None:
-            self._translation = translation
+            self._translation = torch.tensor(translation)
         else:
             self._translation: torch.Tensor = torch.zeros(3)
             """the translation vector of the instance"""
 
         if rotation is not None:
-            self._rotation = rotation
+            self._rotation = torch.tensor(rotation)
         else:
             self._rotation: torch.Tensor = torch.randn(3) * 0.0
             """the rotation vector of the instance defined in exponential map"""
