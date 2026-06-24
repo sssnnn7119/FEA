@@ -10,6 +10,8 @@ from .. import _linear_solver
 from ..basesolver import BaseSolver
 from .result import StaticResult
 
+import logging
+logger = logging.getLogger(__name__)
 
 class StaticImplicitSolver(BaseSolver):
 
@@ -60,6 +62,10 @@ class StaticImplicitSolver(BaseSolver):
         # start the iteration
         if GC0 is None:
             GC0 = self.assembly._GC
+
+
+        logger.info('---' * 8 + ' FEA Start ' + '---' * 8)
+
         with torch.no_grad():
             solve_output = self._solve_iteration(GC=GC0, tol_error=self.tol_error)
 
@@ -69,10 +75,10 @@ class StaticImplicitSolver(BaseSolver):
         t2 = time.time()
 
         # print the information
-        print('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
+        logger.info('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
         R = self.get_stiffness_matrix(GC_now=GC_final)[0]
-        print('max_error:%.4e' % (R.abs().max()))
-        print('---' * 8, 'FEA Finished', '---' * 8, '\n')
+        logger.info('max_error:%.4e' % (R.abs().max()))
+        logger.info('---' * 8 + ' FEA Finished ' + '---' * 8 + '\n')
 
         # build the result object
         fe_result = StaticResult(
@@ -491,7 +497,7 @@ class StaticImplicitSolver(BaseSolver):
                 fe_result.remove_stored_factorization()
                 self._detach_recursive(fe_result)
 
-                print(f" -Step {idx+1}/{len(fe_results)} sensitivity computed.\r", end='')
+                logger.info(f" -Step {idx+1}/{len(fe_results)} sensitivity computed.")
 
                 
             sensitivity = design_vars_grad.grad.clone().detach()
@@ -500,7 +506,7 @@ class StaticImplicitSolver(BaseSolver):
             # Cleanup: Detach all tensors in assembly to prevent graph explosion in next run
             self._detach_recursive(self.assembly)
 
-        print("\nAll steps sensitivity computation completed.")
+        logger.info("All steps sensitivity computation completed.")
 
         return sensitivity
 
@@ -563,7 +569,7 @@ class StaticImplicitSolver(BaseSolver):
         if deltaE > 0:
             dGC = -dGC
             deltaE = -deltaE
-            print('the newton dirction is not the decrease direction')
+            logger.warning('the newton dirction is not the decrease direction')
 
         if torch.isnan(dGC).sum() > 0 or torch.isinf(dGC).sum() > 0:
             raise ValueError('dGC has nan or inf')
@@ -625,7 +631,7 @@ class StaticImplicitSolver(BaseSolver):
         while True:
 
             if self._iter_now > self.maximum_iteration:
-                print('maximum iteration reached')
+                logger.warning('maximum iteration reached')
                 return GC, time.time() - t00, time_items, False
 
             # calculate the force vector and tangential stiffness matrix
@@ -715,6 +721,9 @@ class StaticImplicitSolver(BaseSolver):
             time_items['linear'].append(t3 - t2)
             time_items['line_search'].append(t4 - t3)
             time_items['step'].append(t4 - t1)
+
+            logger.debug('iter:%d, alpha:%.2f, total_time:%.2f, energy:%.4e, delta_energy:%.4e, error:%.4e, Ktime:%.2f, linear:%.2f, search:%.2f, step:%.2f' % (
+                self._iter_now, alpha, t4 - t00, energy[-1], energy[-1] - energy[-2], R.abs().max(), t2 - t1, t3 - t2, t4 - t3, t4 - t1))
             
             if (dGC.abs().max() < tol_error and R.abs().max() < tol_error) or R.abs().max() < 1e-6:
                 break
@@ -723,6 +732,7 @@ class StaticImplicitSolver(BaseSolver):
         total_time = time.time() - t00
 
         return GC, total_time, time_items, True
+    
 
     def _solve_linear_equation(self,
                                K_indices: torch.Tensor,

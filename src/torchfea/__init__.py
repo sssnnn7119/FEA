@@ -1,9 +1,71 @@
-import numpy as np
+"""
+torchfea: A Python library for Finite Element Analysis (FEA) using PyTorch.
+This library provides a framework for defining and solving finite element models using PyTorch tensors. It includes
+modules for defining parts, instances, assemblies, materials, elements, loads, constraints, and surfaces. The library also supports importing models from INP files and provides a base solver class for implementing various finite element analysis solvers.
+"""
+
+import logging
+
+# region: Logging Configuration
+__logger = logging.getLogger(__name__)
+__logger.addHandler(logging.NullHandler())
+
+def enable_logging(level=logging.INFO, log_file=None, file_log_level=logging.INFO):
+    """
+    Enable logging for the FEA package.
+
+    Parameters
+    ----------
+    level : int
+        the logging level (e.g., logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL)
+    log_file : str, optional
+        the path to a log file where logs will be written. If None, logs will only be printed to the console.
+    file_log_level : int
+        the logging level for the log file. Default is logging.INFO.
+    
+    Examples
+    --------
+    >>> import torchfea
+    >>> torchfea.enable_logging(level=logging.DEBUG, log_file='fem.log')
+    """
+    logger = logging.getLogger(__name__)
+    logger.setLevel(min(level, file_log_level))
+    
+    # clear existing handlers to avoid duplicate logs
+    logger.handlers.clear()
+    
+    # logging to console
+    console = logging.StreamHandler()
+    console.setLevel(level)
+    console.setFormatter(logging.Formatter(
+        '%(asctime)s | %(levelname)-7s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    logger.addHandler(console)
+    
+    # logging to file if log_file is provided
+    if log_file:
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(file_log_level)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s | %(levelname)-7s | %(name)s | %(message)s'
+        ))
+        logger.addHandler(file_handler)
+
+    logger.info("FEA logging enabled")
+    return logger
+# endregion
+
+
 import torch
 
 torch.set_default_dtype(torch.float64)
 
-import importlib
+import warnings
+
+# ignore warnings from torch about device placement and other non-critical issues
+warnings.filterwarnings('ignore', '.*Sparse CSR tensor support is in beta state.*')
+
 
 
 from .interfaces import Serializable
@@ -24,6 +86,8 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
     Returns:
         FEA_Main: An instance of the FEA_Main class with imported elements and sets.
     """
+
+    import numpy as np
 
     assembly_now = Assembly()
 

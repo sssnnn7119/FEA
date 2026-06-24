@@ -15,23 +15,16 @@ torch.set_default_dtype(torch.float64)
 
 import torchfea
 
-fem = torchfea.FEA_INP()
-# fem.Read_INP(
-#     'C:/Users/24391/OneDrive - sjtu.edu.cn/MineData/Learning/Publications/2024Arm/WorkspaceCase/CAE/TopOptRun.inp'
-# )
 
-# fem.Read_INP(
-#     'Z:\RESULT\T20240325195025_\Cache/TopOptRun.inp'
-# )
-name = 'C3D10'
+
+fem = torchfea.FEA_INP()
+
+name = 'C3D4'
+torchfea.enable_logging(level=torchfea.logging.INFO, log_file=current_path.parent / 'models' / f'{name}.log', file_log_level=torchfea.logging.DEBUG)
 fem.read_inp(current_path.parent / 'models' / f'{name}.inp')
 
 fe = torchfea.from_inp(fem)
 fe.solver = torchfea.solver.StaticImplicitSolver(tol_error=1e-8)
-# elems = torch_fea.materials.initialize_materials(2, torch.tensor([[1.44, 0.45]]))
-# fe.elems['element-0'].set_materials(elems)
-
-# torch_fea.add_load(Loads.Body_Force_Undeformed(force_volumn_density=[1e-5, 0.0, 0.0], elem_index=torch_fea.elems['C3D4']._elems_index))
 
 fe.assembly.add_load(torchfea.loads.Pressure(instance_name='final_model', surface_set='surface_1_All', pressure=0.06),
                 name='pressure-1')
