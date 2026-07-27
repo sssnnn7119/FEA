@@ -4,13 +4,14 @@ This library provides a framework for defining and solving finite element models
 modules for defining parts, instances, assemblies, materials, elements, loads, constraints, and surfaces. The library also supports importing models from INP files and provides a base solver class for implementing various finite element analysis solvers.
 """
 
-import logging
+
 
 # region: Logging Configuration
-__logger = logging.getLogger(__name__)
-__logger.addHandler(logging.NullHandler())
+import logging as __logging
+__logger = __logging.getLogger(__name__)
+__logger.addHandler(__logging.NullHandler())
 
-def enable_logging(level=logging.INFO, log_file=None, file_log_level=logging.INFO):
+def enable_logging(level=__logging.INFO, log_file=None, file_log_level=__logging.INFO):
     """
     Enable logging for the FEA package.
 
@@ -28,16 +29,16 @@ def enable_logging(level=logging.INFO, log_file=None, file_log_level=logging.INF
     >>> import torchfea
     >>> torchfea.enable_logging(level=logging.DEBUG, log_file='fem.log')
     """
-    logger = logging.getLogger(__name__)
+    logger = __logging.getLogger(__name__)
     logger.setLevel(min(level, file_log_level))
     
     # clear existing handlers to avoid duplicate logs
     logger.handlers.clear()
     
     # logging to console
-    console = logging.StreamHandler()
+    console = __logging.StreamHandler()
     console.setLevel(level)
-    console.setFormatter(logging.Formatter(
+    console.setFormatter(__logging.Formatter(
         '%(asctime)s | %(levelname)-7s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     ))
@@ -45,26 +46,23 @@ def enable_logging(level=logging.INFO, log_file=None, file_log_level=logging.INF
     
     # logging to file if log_file is provided
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler = __logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(file_log_level)
-        file_handler.setFormatter(logging.Formatter(
+        file_handler.setFormatter(__logging.Formatter(
             '%(asctime)s | %(levelname)-7s | %(name)s | %(message)s'
         ))
         logger.addHandler(file_handler)
 
-    logger.info("FEA logging enabled")
     return logger
 # endregion
 
-
-import torch
-
-torch.set_default_dtype(torch.float64)
-
-import warnings
+# the fea must use double precision for convergence and accuracy
+import torch as __torch
+__torch.set_default_dtype(__torch.float64)
 
 # ignore warnings from torch about device placement and other non-critical issues
-warnings.filterwarnings('ignore', '.*Sparse CSR tensor support is in beta state.*')
+import warnings as __warnings
+__warnings.filterwarnings('ignore', '.*Sparse CSR tensor support is in beta state.*')
 
 
 
@@ -88,6 +86,7 @@ def from_inp(inp: FEA_INP, create_instance=True) -> FEAController:
     """
 
     import numpy as np
+    import torch
 
     assembly_now = Assembly()
 

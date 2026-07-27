@@ -78,7 +78,7 @@ class StaticImplicitSolver(BaseSolver):
         logger.info('total_iter:%d, total_time:%.2f' % (self._iter_now, t2 - t0))
         R = self.get_stiffness_matrix(GC_now=GC_final)[0]
         logger.info('max_error:%.4e' % (R.abs().max()))
-        logger.info('---' * 8 + ' FEA Finished ' + '---' * 8 + '\n')
+        logger.info('---' * 8 + ' FEA Finished ' + '---' * 8)
 
         # build the result object
         fe_result = StaticResult(
@@ -386,8 +386,8 @@ class StaticImplicitSolver(BaseSolver):
             # 5. Get Ldx and Ldy for the adjoint solve
             objective.backward(retain_graph=True)
 
-            print("Computing Jacobian sensitivity for each step:")
-            print(f" -Step 0/{len(fe_results)} sensitivity computed.\r", end='')
+            logger.info("Computing Jacobian sensitivity for each step:")
+            logger.info(f" -Step 0/{len(fe_results)} sensitivity computed.\r")
             for idx, fe_result in enumerate(fe_results):
                 # Each step must use its own load state when assembling R, dR/dp and dK/dp.
                 self.assembly.set_work_conditions(fe_result.work_conditions)
